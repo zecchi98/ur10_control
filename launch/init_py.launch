@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<launch>
+      <!--User interface-->
+  	<arg name="graphic_UI" default="true" />
+      <param name="graphic_UI" type="bool" value="$(arg graphic_UI)"/>
+      <group  if="$(eval graphic_UI == true)">
+            <node name="user_interface" pkg="ur10_control" type="user_interface.py" respawn="false" output="screen"></node>
+      </group>
+      <group  if="$(eval graphic_UI == false)">
+            <node name="user_interface" pkg="ur10_control" type="UI_gara.py" respawn="false" output="screen"></node>
+      </group>
+
+
+	<!-- CV LAUNCHER-->
+
+      <node name="my_opencv" pkg="ur10_control" type="my_opencv.py" respawn="false" output="screen"></node>
+  	
+      <node name="control_py" pkg="ur10_control" type="control_py.py" respawn="false" output="screen"></node>
+
+
+</launch>
