@@ -11,6 +11,18 @@ import math
 rospack = rospkg.RosPack()
 
 pathTopkg=rospack.get_path('ur10_control')
+def spegni_tutto():
+    app.closeAllWindows()   
+    try:
+            modality='exit'
+            target_pose=Pose()
+            target_joints=[0,0,0,0,0,0]
+            second_information='null'
+            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
+            resp1 = serv(msg)
+    except rospy.ServiceException as e:
+            print("Errore")
+
 class Manual_pose(QWidget):
     global widget,window_mp,window_joystick,window_main,serv,app
     def __init__(self):
@@ -56,16 +68,7 @@ class Manual_pose(QWidget):
 
         window_mp.setEnabled(True)
     def spegni_console(self):
-        try:
-            modality='exit'
-            target_pose=Pose()
-            target_joints=[0,0,0,0,0,0]
-            second_information='null'
-            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
-            resp1 = serv(msg)
-        except rospy.ServiceException as e:
-            self.l_comunicazione.setText('Errore:'+ e)
-        app.closeAllWindows()
+        spegni_tutto()
     
     # def fRandomOrientationcheck(self):
     #     global boolRandomOrientation
@@ -95,10 +98,69 @@ class Screen_Joystick(QWidget):
     def __init__(self):
         super(Screen_Joystick,self).__init__()
         uic.loadUi(pathTopkg + '/QT/screen_joystick.ui', self)
-    
-    def spegni_console(self):
+    def joystick_facsimile(self,number_joint):
         try:
-            modality='exit'
+            modality='joystick'
+            target_pose=Pose()
+
+            step=float(self.joystick_line_gradi.text())
+            target_joints=[step,0,0,0,0,0]
+            second_information=number_joint
+            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
+            resp1 = serv(msg)
+        except rospy.ServiceException as e:
+            self.l_comunicazione.setText('Errore:'+ e)
+    def joystick_ee_facsimile(self,type_of_ee):
+        try:
+            modality='joystick'
+            target_pose=Pose()
+
+            step=float(self.joystick_line_gradi.text())
+            target_joints=[step,0,0,0,0,0]
+            second_information=type_of_ee
+            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
+            resp1 = serv(msg)
+        except rospy.ServiceException as e:
+            self.l_comunicazione.setText('Errore:'+ e)   
+    def joystick_joint1(self):
+        self.joystick_facsimile("1")
+    def joystick_joint2(self):
+        self.joystick_facsimile("2")
+    def joystick_joint3(self):
+        self.joystick_facsimile("3")
+    def joystick_joint4(self):
+        self.joystick_facsimile("4")
+    def joystick_joint5(self):
+        self.joystick_facsimile("5")
+    def joystick_joint6(self):
+        self.joystick_facsimile("6")
+    def joystick_x_clock(self):
+        self.joystick_ee_facsimile("q")
+    def joystick_x_anticlock(self):
+        self.joystick_ee_facsimile("w")
+    def joystick_y_clock(self):
+        self.joystick_ee_facsimile("a")
+    def joystick_y_anticlock(self):
+        self.joystick_ee_facsimile("s")
+    def joystick_z_clock(self):
+        self.joystick_ee_facsimile("z")
+    def joystick_z_anticlock(self):
+        self.joystick_ee_facsimile("x")
+    def joystick_roll_clock(self):
+        self.joystick_ee_facsimile("o")
+    def joystick_roll_anticlock(self):
+        self.joystick_ee_facsimile("p")
+    def joystick_pitch_clock(self):
+        self.joystick_ee_facsimile("k")
+    def joystick_pitch_anticlock(self):
+        self.joystick_ee_facsimile("l")
+    def joystick_yaw_clock(self):
+        self.joystick_ee_facsimile("n")
+    def joystick_yaw_anticlock(self):
+        self.joystick_ee_facsimile("m")
+    def joystick_stop(self):
+        try:
+            modality='joystick_stop'
             target_pose=Pose()
             target_joints=[0,0,0,0,0,0]
             second_information='null'
@@ -106,7 +168,8 @@ class Screen_Joystick(QWidget):
             resp1 = serv(msg)
         except rospy.ServiceException as e:
             self.l_comunicazione.setText('Errore:'+ e)
-        app.closeAllWindows()
+    def spegni_console(self):
+        spegni_tutto()
     def joystick_moveJoints(self):
         window_joystick.setEnabled(False)
         app.processEvents()
@@ -175,16 +238,7 @@ class Screen_Main(QWidget):
             self.l_comunicazione.setText('Errore:'+ e)
         
     def spegni_console(self):
-        try:
-            modality='exit'
-            target_pose=Pose()
-            target_joints=[0,0,0,0,0,0]
-            second_information='null'
-            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
-            resp1 = serv(msg)
-        except rospy.ServiceException as e:
-            self.l_comunicazione.setText('Errore:'+ e)
-        app.closeAllWindows()   
+        spegni_tutto()
     def goToManualPose(self):
         widget.removeWidget(window_main)
         widget.addWidget(window_mp)
@@ -201,16 +255,7 @@ class Screen_Automazione(QWidget):
         uic.loadUi(pathTopkg + '/QT/screen_automazione.ui', self)
     
     def spegni_console(self):
-        try:
-            modality='exit'
-            target_pose=Pose()
-            target_joints=[0,0,0,0,0,0]
-            second_information='null'
-            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
-            resp1 = serv(msg)
-        except rospy.ServiceException as e:
-            self.l_comunicazione.setText('Errore:'+ e)
-        app.closeAllWindows()   
+        spegni_tutto()
     def goToMainMenu(self):
         widget.removeWidget(window_automazione)
         widget.addWidget(window_main)

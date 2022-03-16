@@ -64,8 +64,8 @@ include_directories(
  catkin_install_python(PROGRAMS
    scripts/UI_gara.py
    scripts/collision_interface.py
-   scripts/solve_equation.py
    scripts/control_py.py
+   scripts/my_opencv.py
    QT/user_interface.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )

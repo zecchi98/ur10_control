@@ -251,7 +251,17 @@ class Move_group_class(object):
       return self.all_close(pose_to_list(goal), pose_to_list(actual), tolerance)
 
     return True
+  def follow_pose_trajectory(self,pose_array):
+    nul=0
+    move_group = self.move_group
 
+    
+    (plan, fraction) = move_group.compute_cartesian_path(
+                                       pose_array,   # waypoints to follow
+                                       0.01,        # eef_step
+                                       0.0)         # jump_threshold
+    
+    move_group.execute(plan, wait=True)
   def ruota_giunto(self,id_giunto,angle):
     joints=self.get_joints_values()
     joints[id_giunto]=joints[id_giunto]+angle
@@ -274,6 +284,12 @@ class Move_group_class(object):
 
     # The go command can be called with joint values, poses, or without any
     # parameters if you have already set the pose or joint target for the group
+
+    for i in range(0,len(joints_vet)):
+      if(joints_vet[i]>3.14 or joints_vet[i]<-3.14):
+        print("Out of bounds")
+        return
+
     move_group.go(joints_vet, wait=True)
 
     # Calling ``stop()`` ensures that there is no residual movement
@@ -286,17 +302,6 @@ class Move_group_class(object):
     return self.all_close(joints_vet, current_joints, 0.01)
   def go_to_pose_goal(self,pose_goal,RandomOrientation):
     move_group = self.move_group
-    ## BEGIN_SUB_TUTORIAL plan_to_pose
-    ##
-    ## Planning to a Pose Goal
-    ## ^^^^^^^^^^^^^^^^^^^^^^^
-    ## We can plan a motion for this group to a desired pose for the
-    # ## end-effector:
-    # pose_goal = geometry_msgs.msg.Pose()
-    # pose_goal.orientation.w = 1.0
-    # pose_goal.position.x = 0.4
-    # pose_goal.position.y = 0.1
-    # pose_goal.position.z = 0.4
     
     if not RandomOrientation:
       move_group.set_pose_target(pose_goal)
@@ -305,19 +310,9 @@ class Move_group_class(object):
       xyz=[pose_goal.position.x,pose_goal.position.y,pose_goal.position.z]
       move_group.set_position_target(xyz)
     
-    ## Now, we call the planner to compute the plan and execute it.
     plan = move_group.go(wait=True)
-    # Calling `stop()` ensures that there is no residual movement
     move_group.stop()
-    # It is always good to clear your targets after planning with poses.
-    # Note: there is no equivalent function for clear_joint_value_targets()
     move_group.clear_pose_targets()
-
-    ## END_SUB_TUTORIAL
-
-    # For testing:
-    # Note that since this section of code will not be included in the tutorials
-    # we use the class variable rather than the copied state variable
     current_pose = self.move_group.get_current_pose().pose
     return self.all_close(pose_goal, current_pose, 0.01)
   def go_to_pose_cartesian(self,pose_goal):
@@ -332,13 +327,11 @@ class Move_group_class(object):
                                        waypoints,   # waypoints to follow
                                        0.01,        # eef_step
                                        0.0)         # jump_threshold
-
+    print(plan)
     self.execute_plan(plan)
     self.display_trajectory(plan)
 
     return plan, fraction
-
-    ## END_SUB_TUTORIAL
   def plan_cartesian_path(self, scale=1):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -378,8 +371,6 @@ class Move_group_class(object):
 
     # Note: We are just planning, not asking move_group to actually move the robot yet:
     return plan, fraction
-
-    ## END_SUB_TUTORIAL
   def display_trajectory(self, plan):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -402,9 +393,7 @@ class Move_group_class(object):
     display_trajectory.trajectory_start = robot.get_current_state()
     display_trajectory.trajectory.append(plan)
     # Publish
-    display_trajectory_publisher.publish(display_trajectory);
-
-    ## END_SUB_TUTORIAL
+    display_trajectory_publisher.publish(display_trajectory)
   def execute_plan(self, plan):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -418,10 +407,6 @@ class Move_group_class(object):
     ## Use execute if you would like the robot to follow
     ## the plan that has already been computed:
     move_group.execute(plan, wait=True)
-
-    ## **Note:** The robot's current joint state must be within some tolerance of the
-    ## first waypoint in the `RobotTrajectory`_ or ``execute()`` will fail
-    ## END_SUB_TUTORIAL
   def wait_for_state_update(self, box_is_known=False, box_is_attached=False, timeout=4):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -461,7 +446,6 @@ class Move_group_class(object):
 
     # If we exited the while loop without returning then we timed out
     return False
-    ## END_SUB_TUTORIAL
   def add_box(self,collision_box, timeout=0):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -959,10 +943,10 @@ def handle_user_request():
   if msg_from_user.modality=="pose_randomOrientation":
     movegroup_library.go_to_pose_goal(msg_from_user.target_pose,True)
   if msg_from_user.modality=="pose":
-    movegroup_library.go_to_pose_goal(msg_from_user.target_pose,False)
+    movegroup_library.go_to_pose_cartesian(msg_from_user.target_pose)
   
 def handle_joystick_input(input):
-  global joystick_verso_rotazione,joystick_translation_step,joystick_angle_step
+  global joystick_verso_rotazione,joystick_translation_step,joystick_angle_step,bool_message_from_user
   #q w -> asse x
   #a s -> asse y
   #z x -> asse z
@@ -972,7 +956,7 @@ def handle_joystick_input(input):
 
   #if bool_pose_move==True allora si dovra effettuare un movimento go_to_pose
   #if bool_joint_move==True allora si dovra effettuare un movimento go_to_joint_state
-  
+  bool_message_from_user=True
   bool_pose_move=False
   bool_joint_move=False
   
@@ -1033,7 +1017,7 @@ def handle_joystick_input(input):
     quaternion_target=transformation_library.from_euler_to_quaternion(target_rpy_vet)
     target_pose.orientation=quaternion_target.orientation
     
-    movegroup_library.go_to_pose_goal(target_pose)
+    movegroup_library.go_to_pose_cartesian(target_pose)
 
 #initial
 def define_std_matrices():
@@ -1065,14 +1049,26 @@ def define_all_initial_functions():
   #joystick
   joystick_verso_rotazione=1
   joystick_translation_step=0.02
-  joystick_angle_step=transformation_library.grad_to_rad(20)
+  joystick_angle_step=transformation_library.grad_to_rad(5)
 
   rospy.Service('user_interface_serv', UserInterface, callback_user_interface)
   define_std_matrices()    
 
+def example_waypoints():
 
+  waypoints = []
+  scale=1
+  wpose = movegroup_library.move_group.get_current_pose().pose
+  wpose.position.z += 0.3  # First move up (z)
+  waypoints.append(copy.deepcopy(wpose))
+
+  wpose.position.x += 0.3  # Second move forward/backwards in (x)
+  waypoints.append(copy.deepcopy(wpose))
+  movegroup_library.follow_pose_trajectory(waypoints)
 def prova():
   nul=0
+
+  print(movegroup_library.move_group.get_known_constraints())
 def main():
   define_all_initial_functions()
   prova()    
