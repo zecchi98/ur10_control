@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #fold all: ctrl + k + 0
 #unfold all: ctrl + k + j
 import copy
@@ -24,7 +24,7 @@ from std_msgs.msg import String
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from ur10_control.srv import * 
 from ur10_control.msg import *
-
+from robodk import robolink, robomath,robolink      # import the robotics toolbox
 
 
   
@@ -300,7 +300,7 @@ class Move_group_class(object):
     # For testing:
     current_joints = move_group.get_current_joint_values()
     return self.all_close(joints_vet, current_joints, 0.01)
-  def go_to_pose_goal(self,pose_goal,RandomOrientation):
+  def go_to_pose_goal(self,pose_goal,RandomOrientation=False):
     move_group = self.move_group
     
     if not RandomOrientation:
@@ -315,7 +315,7 @@ class Move_group_class(object):
     move_group.clear_pose_targets()
     current_pose = self.move_group.get_current_pose().pose
     return self.all_close(pose_goal, current_pose, 0.01)
-  def go_to_pose_cartesian(self,pose_goal):
+  def go_to_pose_cartesian(self,pose_goal,bool_allow_std_movement=False):
   
     move_group = self.move_group
 
@@ -327,7 +327,14 @@ class Move_group_class(object):
                                        waypoints,   # waypoints to follow
                                        0.01,        # eef_step
                                        0.0)         # jump_threshold
-    print(plan)
+    
+    #Se fraction <1 e quindi c'e stato un errore, allora utilizza il planner normale
+    if(bool_allow_std_movement and fraction<1):
+      print(fraction)
+      self.go_to_pose_goal(pose_goal,False)
+      #Esco senza return
+      return
+    
     self.execute_plan(plan)
     self.display_trajectory(plan)
 
@@ -943,7 +950,7 @@ def handle_user_request():
   if msg_from_user.modality=="pose_randomOrientation":
     movegroup_library.go_to_pose_goal(msg_from_user.target_pose,True)
   if msg_from_user.modality=="pose":
-    movegroup_library.go_to_pose_cartesian(msg_from_user.target_pose)
+    movegroup_library.go_to_pose_cartesian(msg_from_user.target_pose,True)
   
 def handle_joystick_input(input):
   global joystick_verso_rotazione,joystick_translation_step,joystick_angle_step,bool_message_from_user
@@ -1017,7 +1024,7 @@ def handle_joystick_input(input):
     quaternion_target=transformation_library.from_euler_to_quaternion(target_rpy_vet)
     target_pose.orientation=quaternion_target.orientation
     
-    movegroup_library.go_to_pose_cartesian(target_pose)
+    movegroup_library.go_to_pose_cartesian(target_pose,True)
 
 #initial
 def define_std_matrices():
@@ -1067,8 +1074,19 @@ def example_waypoints():
   movegroup_library.follow_pose_trajectory(waypoints)
 def prova():
   nul=0
+  RDK = robolink.Robolink()
+  pose = robomath.eye()
+  robolink.ITEM_TYPE_ROBOT                 # establish a link with the simulator
+  robot = RDK.Item('UR10')      # retrieve the robot by name
+  robot.setJoints([0,0,0,0,0,0])      # set all robot axes to zero
+  time.sleep(2)
+  target = RDK.Item('Home')         # retrieve the Target item
+  robot.MoveJ(target)                 # move the robot to the target
 
-  print(movegroup_library.move_group.get_known_constraints())
+  # calculate a new approach position 100 mm along the Z axis of the tool with respect to the target
+  
+  approach = target.Pose()*robomath.transl(0,0,-100)
+  robot.MoveL(approach)
 def main():
   define_all_initial_functions()
   prova()    

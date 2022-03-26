@@ -13,9 +13,9 @@
 
 	<!-- CV LAUNCHER-->
 
-      <node name="my_opencv" pkg="ur10_control" type="my_opencv.py" respawn="false" output="screen"></node>
+      <!--node name="my_opencv" pkg="ur10_control" type="my_opencv.py" respawn="false" output="screen"></node-->
   	
-      <node name="control_py" pkg="ur10_control" type="control_py.py" respawn="false" output="screen"></node>
+      <node name="control_robodk" pkg="ur10_control" type="control_robodk.py" respawn="false" output="screen"></node>
 
 
 

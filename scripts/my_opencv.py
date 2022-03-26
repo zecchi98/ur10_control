@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
-from tkinter.tix import Tree
+#from tkinter.tix import Tree
 import rospy
 import numpy as np
 
