@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #fold all: ctrl + k + 0
 #unfold all: ctrl + k + j
 import copy
@@ -10,6 +10,8 @@ from logging import setLoggerClass
 from math import cos, pi, sin
 from os import access
 from re import X
+
+from pytest import Mark, mark
 
 import geometry_msgs.msg
 import moveit_commander
@@ -24,10 +26,10 @@ from std_msgs.msg import String
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from ur10_control.srv import * 
 from ur10_control.msg import *
-from robodk import robolink, robomath,robolink      # import the robotics toolbox
+from noether_msgs.msg import *
+from visualization_msgs.msg import *
+import open3d as o3d
 
-
-  
 flagMiddlePanelCreated=False
 bool_exit=False
 class Transformation_class():
@@ -611,7 +613,27 @@ class Comunication_class(object):
     else:
       ValidMatrix.is_valid=False
     return ValidMatrix
-    
+class Noether_comunication(object):
+  def __init__(self):
+    super(Noether_comunication, self).__init__()
+    rospy.Subscriber("/generate_tool_paths/result",GenerateToolPathsActionResult,self.noether_result_callback)
+  def noether_result_callback(self,msg):
+
+    tool_paths=msg.result.tool_paths
+    for tool_path in tool_paths:
+      paths=tool_path.paths
+      for path in paths:
+        segments=path.segments
+        for segment in segments:
+          poses=segment.poses
+          #movegroup_library.follow_pose_trajectory(poses)
+          for pose in poses:
+            print(pose)
+            #movegroup_library.go_to_pose_cartesian(pose)
+            #time.sleep(1)
+            add_pose_to_marker_array(pose)
+
+
       
 
 class Movimenti_base_class(object):
@@ -1044,15 +1066,20 @@ def define_std_matrices():
   #print(T_tool_camera_gazebo.Affine_matrix)
 def define_all_initial_functions():
   global movegroup_library,comunication_object,transformation_library,movimenti_base_library,aruco_library
-  global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user
+  global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user,markerArray,pub,marker_cont
   aruco_library=Aruco_class()
   movegroup_library = Move_group_class()
   comunication_object=Comunication_class()
   transformation_library=Transformation_class()
   movimenti_base_library=Movimenti_base_class()
-
+  noether_library=Noether_comunication()
   bool_message_from_user=False
   
+  
+
+  markerArray=MarkerArray()
+  marker_cont=0
+  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
   #joystick
   joystick_verso_rotazione=1
   joystick_translation_step=0.02
@@ -1074,28 +1101,45 @@ def example_waypoints():
   movegroup_library.follow_pose_trajectory(waypoints)
 def prova():
   nul=0
-  RDK = robolink.Robolink()
-  pose = robomath.eye()
-  robolink.ITEM_TYPE_ROBOT                 # establish a link with the simulator
-  robot = RDK.Item('UR10')      # retrieve the robot by name
-  robot.setJoints([0,0,0,0,0,0])      # set all robot axes to zero
-  time.sleep(2)
-  target = RDK.Item('Home')         # retrieve the Target item
-  robot.MoveJ(target)                 # move the robot to the target
+	
 
-  # calculate a new approach position 100 mm along the Z axis of the tool with respect to the target
-  
-  approach = target.Pose()*robomath.transl(0,0,-100)
-  robot.MoveL(approach)
+    
+
+def add_pose_to_marker_array(pose):
+  global marker_cont
+  marker=Marker()
+  marker.header.frame_id = "cameradepth_link"
+  marker.header.stamp = rospy.get_rostime()
+
+  marker.ns = ""
+  marker.id = marker_cont
+  marker.type = visualization_msgs.msg.Marker.ARROW
+  marker.action = 0
+  marker.pose=pose
+  marker.scale.x = 0.02
+  marker.scale.y = 0.005
+  marker.scale.z = 0.005
+  marker.color.a = 1.0; 
+  marker.color.r = 0.0
+  marker.color.g = 1.0
+  marker.color.b = 0.0
+
+
+  markerArray.markers.append(marker)
+  marker_cont=marker_cont+1
+
+  print("published")
 def main():
+  prova()
   define_all_initial_functions()
-  prova()    
+  #prova()    
   try:
     while (not rospy.core.is_shutdown()) and (not bool_exit):
 
 
-        
         rospy.rostime.wallsleep(0.5)
+        if not marker_cont==0 :
+          pub.publish(markerArray)
         if bool_message_from_user:
           handle_user_request()
   except rospy.ROSInterruptException:
