@@ -1087,7 +1087,7 @@ def define_all_initial_functions():
 
   rospy.Service('user_interface_serv', UserInterface, callback_user_interface)
   define_std_matrices()    
-
+  movegroup_library.move_group.get
 def example_waypoints():
 
   waypoints = []
