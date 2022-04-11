@@ -187,7 +187,7 @@
      <x>540</x>
      <y>100</y>
      <width>99</width>
-     <height>91</height>
+     <height>114</height>
     </rect>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout_4">
@@ -216,6 +216,13 @@
       </property>
      </widget>
     </item>
+    <item>
+     <widget class="QPushButton" name="pushButton_3">
+      <property name="text">
+       <string>SalvaInCloud</string>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
   <widget class="QWidget" name="layoutWidget_2">
@@ -235,14 +242,17 @@
         <item>
          <widget class="QLabel" name="label_3">
           <property name="text">
-           <string>Step</string>
+           <string>Percentuale</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLineEdit" name="joystick_line_gradi_15">
-          <property name="text">
-           <string>0</string>
+         <widget class="QSlider" name="step_ee_slider">
+          <property name="value">
+           <number>30</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
           </property>
          </widget>
         </item>
@@ -432,8 +442,8 @@
    <slot>spegni_console()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>190</x>
-     <y>433</y>
+     <x>542</x>
+     <y>124</y>
     </hint>
     <hint type="destinationlabel">
      <x>612</x>
@@ -448,8 +458,8 @@
    <slot>goToManualPose()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>213</x>
-     <y>467</y>
+     <x>542</x>
+     <y>153</y>
     </hint>
     <hint type="destinationlabel">
      <x>636</x>
@@ -464,8 +474,8 @@
    <slot>goToMainMenu()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>187</x>
-     <y>509</y>
+     <x>541</x>
+     <y>183</y>
     </hint>
     <hint type="destinationlabel">
      <x>578</x>
@@ -1049,6 +1059,22 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>pushButton_3</sender>
+   <signal>clicked()</signal>
+   <receiver>Form</receiver>
+   <slot>salva_point_in_cloud()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>589</x>
+     <y>208</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>628</x>
+     <y>388</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>prova()</slot>
@@ -1081,5 +1107,6 @@
   <slot>joystick_roll_anticlock()</slot>
   <slot>joystick_pitch_anticlock()</slot>
   <slot>joystick_yaw_anticlock()</slot>
+  <slot>salva_point_in_cloud()</slot>
  </slots>
 </ui>

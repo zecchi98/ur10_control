@@ -82,7 +82,7 @@
     <item>
      <widget class="QPushButton" name="pushButton_8">
       <property name="text">
-       <string>Ruota e cerca pannello</string>
+       <string>Elabora Cloud</string>
       </property>
      </widget>
     </item>
@@ -180,7 +180,7 @@
     </item>
    </layout>
   </widget>
-  <widget class="QWidget" name="">
+  <widget class="QWidget" name="layoutWidget">
    <property name="geometry">
     <rect>
      <x>20</x>
@@ -322,22 +322,6 @@
    </hints>
   </connection>
   <connection>
-   <sender>pushButton_8</sender>
-   <signal>clicked()</signal>
-   <receiver>stop_traj_button</receiver>
-   <slot>ruota_e_cerca_pannello()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>176</x>
-     <y>174</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>63</x>
-     <y>151</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
    <sender>pushButton_9</sender>
    <signal>clicked()</signal>
    <receiver>stop_traj_button</receiver>
@@ -433,6 +417,22 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>pushButton_8</sender>
+   <signal>clicked()</signal>
+   <receiver>stop_traj_button</receiver>
+   <slot>elaboraManualCloud()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>230</x>
+     <y>164</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>61</x>
+     <y>218</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>prova()</slot>
@@ -460,5 +460,7 @@
   <slot>automazione_go_pos_iniziale()</slot>
   <slot>automazione_debug1()</slot>
   <slot>automazione_debug2()</slot>
+  <slot>salva_point_in_cloud()</slot>
+  <slot>elaboraManualCloud()</slot>
  </slots>
 </ui>

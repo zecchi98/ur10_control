@@ -81,7 +81,7 @@ def main():
     raw_topic="/camera/color/image_raw"
     myCamera="/camera/color"
 
-    bool_camera_on=True
+    bool_camera_on=rospy.get_param("camera_on")
     
     #rospy initialization
     rospy.init_node('camera_listener', anonymous=True)

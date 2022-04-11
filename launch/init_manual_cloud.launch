@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+
+      
+  	<arg name="CloseSystem" default="false" />
+      <param name="CloseSystem" type="bool" value="$(arg CloseSystem)"/>
+
+      <node name="manual_cloud" pkg="ur10_control" type="manual_cloud.py" respawn="false" output="screen"></node>
+      <node name="handle_manual_pointcloud" pkg="pcl_zk" type="handle_manual_pointcloud.py" respawn="false" output="log"></node>
+</launch>

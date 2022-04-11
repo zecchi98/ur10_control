@@ -2,7 +2,9 @@
 <launch>
       <!--User interface-->
   	<arg name="graphic_UI" default="true" />
+  	<arg name="camera_on" default="true" />
       <param name="graphic_UI" type="bool" value="$(arg graphic_UI)"/>
+      <param name="camera_on" type="bool" value="$(arg camera_on)"/>
       <group  if="$(eval graphic_UI == true)">
             <node name="user_interface" pkg="ur10_control" type="user_interface.py" respawn="false" output="screen"></node>
       </group>
@@ -16,6 +18,8 @@
       <node name="my_opencv" pkg="ur10_control" type="my_opencv.py" respawn="false" output="screen"></node>
   	
       <node name="control_py" pkg="ur10_control" type="control_py.py" respawn="false" output="screen"></node>
+
+      <node name="handle_manual_pointcloud" pkg="pcl_zk" type="handle_manual_pointcloud.py" respawn="false" output="screen"></node>
 
 
 

@@ -8,7 +8,7 @@ import math
 from shutil import move
 import sys
 import time
-from logging import setLoggerClass
+from logging import root, setLoggerClass
 from math import cos, pi, sin
 from os import access
 from re import X
@@ -26,7 +26,7 @@ from std_msgs.msg import String
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from ur10_control.srv import * 
 from ur10_control.msg import *
-from robodk import robolink, robomath,robolink      # import the robotics toolbox
+from robodk import robolink, robomath      # import the robotics toolbox
 from scipy.spatial.transform import Rotation 
 
 
@@ -340,6 +340,10 @@ class RoboDK_class():
         print("Errore, out of bounds")
         return False
     return True
+  def get_actual_joint(self):
+    j=self.robot.Joints()
+    return j
+
 #std functions
 def callback_user_interface(msg):
   global bool_message_from_user,msg_from_user
@@ -457,22 +461,23 @@ def define_all_initial_functions():
   joystick_translation_step=50
   joystick_angle_step=5
 
+  robodk_library.RDK.setCollisionActive(1)
   rospy.Service('user_interface_serv', UserInterface, callback_user_interface)
   
+def test_funzionamento_sistema():
+  robodk_library.go_to_posedk()
 def prova():
-  nul=0
-  RDK=robodk_library.RDK
-  robot=robodk_library.robot
-
-  matrix_dk=robomath.Pose(0,200,200,0,0,0)
-  solution=robot.SolveIK(matrix_dk)
-  if not robodk_library.check_if_matrix_is_a_valid_pose(matrix_dk):
-    return False
-  robot.MoveJ(matrix_dk) #Linear move to approachs
-  return True
+  for i in range(1,10):
+    j=robodk_library.get_actual_joint()
+    target=robodk_library.get_actual_matrix()*robomath.transl(0,-300,0)
+    ret=robodk_library.robot.MoveL_Test(j,target,1)
+    print(ret)
+    #time.sleep(0.5)
+  print("ok")
 def main():
   define_all_initial_functions()
-  prova()    
+  #prova()
+  #test_funzionamento_sistema()    
   try:
     while (not rospy.core.is_shutdown()) and (not bool_exit):
 

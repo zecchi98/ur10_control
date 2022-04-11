@@ -114,9 +114,8 @@ class Screen_Joystick(QWidget):
         try:
             modality='joystick'
             target_pose=Pose()
-
-            step=float(self.joystick_line_gradi.text())
-            target_joints=[step,0,0,0,0,0]
+            step_ee_slider=self.step_ee_slider.value()
+            target_joints=[step_ee_slider,0,0,0,0,0]
             second_information=type_of_ee
             msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
             resp1 = serv(msg)
@@ -220,6 +219,17 @@ class Screen_Joystick(QWidget):
     def goToMainMenu(self):
         widget.removeWidget(window_joystick)
         widget.addWidget(window_main)
+    def salva_point_in_cloud(self):
+        target_joints=[0,0,0,0,0,0] 
+        target_pose=Pose()
+        modality='salva_point_in_cloud'
+        second_information=""
+        try:
+            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
+            resp1 = serv(msg)
+        except rospy.ServiceException as e:   
+            print('Errore:'+ e)      
+
 class Screen_Main(QWidget):
     global widget,window_mp,window_joystick,window_main,window_automazione
     def __init__(self):
@@ -235,7 +245,8 @@ class Screen_Main(QWidget):
             msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
             resp1 = serv(msg)
         except rospy.ServiceException as e:
-            self.l_comunicazione.setText('Errore:'+ e)
+            print("errore")
+            print(e)
         
     def spegni_console(self):
         spegni_tutto()
@@ -310,7 +321,16 @@ class Screen_Automazione(QWidget):
             resp1 = serv(msg)
         except rospy.ServiceException as e:
             self.l_comunicazione.setText('Errore:'+ e)
-        
+    def elaboraManualCloud(self):
+        target_joints=[0,0,0,0,0,0] 
+        target_pose=Pose()
+        modality='elaboraManualCloud'
+        second_information=""
+        try:
+            msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
+            resp1 = serv(msg)
+        except rospy.ServiceException as e:   
+            print('Errore:'+ e)      
 
 
 
