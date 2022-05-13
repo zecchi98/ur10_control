@@ -1210,6 +1210,7 @@ def define_all_initial_functions():
   joystick_angle_step=transformation_library.grad_to_rad(5)
 
   rospy.Service('user_interface_serv', UserInterface, callback_user_interface)
+  movegroup_library.Stampa_Info_Robot()
   define_std_matrices()    
 def example_waypoints():
 

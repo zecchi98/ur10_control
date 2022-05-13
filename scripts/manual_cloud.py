@@ -30,10 +30,12 @@ from visualization_msgs.msg import *
 from robodk import robolink, robomath      # import the robotics toolbox
 from scipy.spatial.transform import Rotation 
 import rospkg
+from tf2_msgs.msg import TFMessage
 
 bool_robodk_enabled=False
 flagMiddlePanelCreated=False
 bool_exit=False
+bool_move_group_initialized=False
 class Transformation_class():
   def __init__(self):
         null=0
@@ -149,6 +151,18 @@ class Transformation_class():
     return pose
   def inverse_matrix(self,AffineMat):
     return np.linalg.inv(AffineMat)
+  def compute_distance_pose(self,pose1,pose2):
+    x1=pose1.position.x
+    y1=pose1.position.y
+    z1=pose1.position.z
+    x2=pose2.position.x
+    y2=pose2.position.y
+    z2=pose2.position.z
+    dx=(x1-x2)*(x1-x2)
+    dy=(y1-y2)*(y1-y2)
+    dz=(z1-z2)*(z1-z2)
+    return math.sqrt(dx+dy+dz)
+
 class Collision_Box():
     def __init__(self):
         self.box_pose = PoseStamped()
@@ -574,6 +588,33 @@ class Move_group_class(object):
     print(rpy)
   def get_current_ee_pose(self):
     return self.move_group.get_current_pose()
+  def get_T_base_camera_depth(self):
+    trans=[0,0,0]
+    R=transformation_library.eul2rot([0,0,math.pi])
+    T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+    R_tool_camera=transformation_library.eul2rot([0,-math.pi/2,math.pi/2])
+    trans_tool_camera=[0,0,0]
+    T_tool_camera=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_tool_camera,trans_tool_camera)
+
+    R_camera_camera_depth=transformation_library.eul2rot([-math.pi/2,0,-math.pi/2])
+    trans_camera_camera_depth=[0,0,0]
+    T_camera_camera_depth=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_camera_camera_depth,trans_camera_camera_depth)
+
+
+    R_ee_tool=transformation_library.eul2rot([-math.pi/2,0,-math.pi/2])
+    trans_ee_tool=[0,0,0]
+    T_ee_tool=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_ee_tool,trans_ee_tool)
+
+
+    pose_ee=movegroup_library.get_current_ee_pose().pose
+    T_base_ee=transformation_library.from_pose_to_matrix(pose_ee)
+
+    #T_base_ee_changed=np.dot(T_sr_change,T_base_ee)
+    T_base_tool=np.dot(T_base_ee,T_ee_tool)
+    T_tool_camera_depth=np.dot(T_tool_camera,T_camera_camera_depth)
+    T_base_camera_depth=np.dot(T_base_tool,T_tool_camera_depth)
+    return T_base_camera_depth
 class Comunication_class(object):
   def __init__(self):
     super(Comunication_class, self).__init__()
@@ -626,10 +667,23 @@ class Comunication_class(object):
     return ValidMatrix
 class Noether_comunication(object):
   def __init__(self):
+    global marker_cont
     super(Noether_comunication, self).__init__()
-    rospy.Subscriber("/generate_tool_paths/result",GenerateToolPathsActionResult,self.noether_result_callback)
-  def noether_result_callback(self,msg):
+    #rospy.Subscriber("/generate_tool_paths/result",GenerateToolPathsActionResult,self.noether_result_callback)
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathToFile=pathTopkg+"/data/traiettoria.txt"
+    self.all_poses_in_traj=[]
+    self.all_normals=[]
+    self.real_traj=[]
+    self.pathToFile=pathToFile
+    self.bool_traj_saved=False
+    self.bool_normals_saved=False
+    self.bool_associazione_completata=False
 
+    marker_cont=0
+  def noether_result_callback(self,msg):
+    self.all_poses_in_traj=[]
     tool_paths=msg.result.tool_paths
     for tool_path in tool_paths:
       paths=tool_path.paths
@@ -639,23 +693,358 @@ class Noether_comunication(object):
           poses=segment.poses
           #movegroup_library.follow_pose_trajectory(poses)
           for pose in poses:
-            print(pose)
+            #print(pose)
             #movegroup_library.go_to_pose_cartesian(pose)
             #time.sleep(1)
             add_pose_to_marker_array(pose)
+            self.all_poses_in_traj.append(pose)
+    self.save_traiettoria()
+  def save_traiettoria(self):
+    
+    output_file = open(self.pathToFile, "w")
+    for pose in self.all_poses_in_traj:
+      x=str(pose.position.x)
+      y=str(pose.position.y)
+      z=str(pose.position.z)
+      ox=str(pose.orientation.x)
+      oy=str(pose.orientation.y)
+      oz=str(pose.orientation.z)
+      ow=str(pose.orientation.w)
+      output_file.write(x+" "+y+" "+z+" "+ox+" "+oy+" "+oz+" "+ow+"\n")
+    output_file.close()
+    print("Finish to plot and save trajectory\n\n")
+  def read_traj_from_file(self):
+    nul=0
+    self.all_poses_in_traj=[]
+    input_file = open(self.pathToFile, "r")
+    for x in input_file:
+      s=x.split()
+      pose=Pose()
+      pose.position.x=float(s[0])
+      pose.position.y=float(s[1])
+      pose.position.z=float(s[2])
+      pose.orientation.x=float(s[3])
+      pose.orientation.y=float(s[4])
+      pose.orientation.z=float(s[5])
+      pose.orientation.w=float(s[6])
+      self.all_poses_in_traj.append(pose)
+    print("Finished to read traj from file")
+    #print(self.all_poses_in_traj)
+    self.bool_traj_saved=True
+  def read_normals_from_file(self):
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathTopkg=pathTopkg+"/data/"
+    pathToFile=pathTopkg+"my_normals.pcd"
+    input_file = open(pathToFile, "r")
+    cont=0
+    cont2=0
+    for x in input_file:
+      cont=cont+1
+    
+      if(cont>11):
+        
+        s=x.split()
+        if(s[0]!="nan"):
+          pos=movegroup_library.get_current_ee_pose().pose
+          pos.position.x=float(s[0])
+          pos.position.y=float(s[1])
+          pos.position.z=float(s[2])
+          quat=transformation_library.from_euler_to_quaternion([float(s[3]),float(s[4]),float(s[5])])
+          pos.orientation=quat.orientation
+          trans=[0,0,0]
+          R=transformation_library.eul2rot([0,math.pi/2,0])
+          T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
 
 
-   
 
+          T_actual=transformation_library.from_pose_to_matrix(pos)
+
+          T_final=np.dot(T_actual,T_normal)
+          Pos_final=transformation_library.from_matrix_to_pose(T_final)
+
+
+          self.all_normals.append(Pos_final)
+    self.bool_normals_saved=True
+    print("Normals reading completed")
+  def associate_traj_and_normals_points(self):
+    if not self.bool_traj_saved :
+      self.read_traj_from_file()
+    if not self.bool_normals_saved :
+      self.read_normals_from_file()
+     
+    for traj_pose in self.all_poses_in_traj:
+      min=1000
+      for normal_pose in self.all_normals:
+
+        dist=transformation_library.compute_distance_pose(traj_pose,normal_pose)
+        if(dist<min):
+          min=dist
+          normal_piu_vicina=normal_pose
+      
+      self.real_traj.append(normal_piu_vicina)
+    
+    print("Associazione finita")
+  def add_pose_to_marker_array_as_points(self,pose,sdr):
+    global marker_cont,markerArray
+    marker=Marker()
+    #marker.header.frame_id = "cameradepth_link"
+    marker.header.frame_id = sdr
+    marker.header.stamp = rospy.get_rostime()
+
+    marker.ns = ""
+    marker.id = marker_cont
+    marker.type = visualization_msgs.msg.Marker.ARROW
+    marker.action = 0
+    marker.pose=pose  
+    
+    #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+    #R2=transformation_library.eul2rot([0,math.pi/2,0])
+    #R=np.dot(R1,R2)
+    #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+    #marker.pose.orientation=pose_quat.orientation
+
+    
+    marker.scale.x = 0.01
+    marker.scale.y = 0.002
+    marker.scale.z = 0.002
+    marker.color.a = 1.0; 
+    marker.color.r = 0.0
+    marker.color.g = 1.0
+    marker.color.b = 1.0
+
+
+    markerArray.markers.append(marker)
+    marker_cont=marker_cont+1        
+  def add_pose_to_marker_array_as_arrows(self,pose,sdr):
+    global marker_cont,markerArray
+    marker=Marker()
+    #marker.header.frame_id = "cameradepth_link"
+    marker.header.frame_id = sdr
+    marker.header.stamp = rospy.get_rostime()
+
+    marker.ns = ""
+    marker.id = marker_cont
+    marker.type = visualization_msgs.msg.Marker.ARROW
+    marker.action = 0
+    marker.pose=pose  
+    
+    #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+    #R2=transformation_library.eul2rot([0,math.pi/2,0])
+    #R=np.dot(R1,R2)
+    #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+    #marker.pose.orientation=pose_quat.orientation
+
+    marker.scale.x = 0.02
+    marker.scale.y = 0.005
+    marker.scale.z = 0.005
+    marker.color.a = 1.0; 
+    marker.color.r = 0.0
+    marker.color.g = 1.0
+    marker.color.b = 0.0
+
+
+    markerArray.markers.append(marker)
+    marker_cont=marker_cont+1        
+  def publish_traj(self):
+    markerArray=MarkerArray()
+    for x in self.all_poses_in_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"base")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def publish_traj_CAMERA(self):
+    markerArray=MarkerArray()
+    #print(len(self.all_poses_in_traj))
+    for x in self.all_poses_in_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"cameradepth_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def publish_traj_with_normals(self):
+    markerArray=MarkerArray()
+    #print(len(self.all_poses_in_traj))
+    for x in self.real_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"base_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def CAMERA_leggi_normals(self):
+    #this function works with all the points in the camera reference system
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathTopkg=pathTopkg+"/data/"
+    pathToFile=pathTopkg+"real_surface_points.pcd"
+    
+    input_file = open(pathToFile, "r")
+    cont=0
+    cont2=0
+    self.all_normals=[]
+    trans=[0,0,0]
+    cont2=0
+    for x in input_file:
+            s=x.split()
+            cont2=cont2+1
+
+            pos=Pose()
+            pos.position.x=float(s[0])
+            pos.position.y=float(s[1])
+            pos.position.z=float(s[2])
+            pos.orientation.x=float(s[3])
+            pos.orientation.y=float(s[4])
+            pos.orientation.z=float(s[5])
+            pos.orientation.w=float(s[6])
+          
+            #if(cont2%10000==0):
+              #print(cont2)
+            self.all_normals.append(pos)  
+    
+    self.bool_normals_saved=True   
+    print("Finish to read normals")
+  def CAMERA_associate_traj_and_normals_points(self):
+    if self.bool_associazione_completata:
+      return
+    if not self.bool_traj_saved :
+      self.read_traj_from_file()
+    if not self.bool_normals_saved :
+      self.CAMERA_leggi_normals()
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+
+
+    for traj_pose in self.all_poses_in_traj:
+      min=1000
+      for normal_pose in self.all_normals:
+
+        dist=transformation_library.compute_distance_pose(traj_pose,normal_pose)
+        if(dist<min):
+          min=dist
+          normal_piu_vicina=normal_pose
+      
+      #Trasformo da camera_depth a base sdr
+      pos_target=normal_piu_vicina
+      T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pos_target)
+      T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
+      final_target=transformation_library.from_matrix_to_pose(T_base_target)
+      #print(final_target)
+      #print(pos_target)
+      #time.sleep(1)
+
+      self.real_traj.append(final_target)
+    self.bool_associazione_completata=True
+    print("Associazione finita")
+  def go_to_all_normals_CAMERA(self):
+    global bool_exit
+    pose_array=self.all_normals
+    #print(pose_array)
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+    cont=0
+    for pose in pose_array:
+      #print(pose)
+      cont=cont+1
+      if cont%1000==0:
+        #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+        T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pose)
+        T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
+        
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,0,math.pi])
+        T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+        
+        T_final=np.dot(T_sr_change,T_base_target)
+        Pos_final=transformation_library.from_matrix_to_pose(T_base_target)
+        movegroup_library.go_to_pose_goal(Pos_final)
+        bool_exit=rospy.get_param("/CloseSystem")
+        if bool_exit:
+          return
+  def publish_normals(self):
+    global markerArray
+    markerArray=MarkerArray()
+    cont=0
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+    for x in self.all_normals:
+      cont=cont+1
+      if cont%1000==0:
+        self.add_pose_to_marker_array_as_points(x,"cameradepth_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
 def define_all_initial_functions():
-  global movegroup_library,comunication_object,transformation_library,movimenti_base_library,aruco_library
+  global comunication_object,transformation_library,movimenti_base_library,aruco_library
   global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user,markerArray,pub,marker_cont
-  movegroup_library = Move_group_class()
+  global xyz_actual,noether_library,movegroup_library,bool_move_group_initialized
   bool_message_from_user=False
-
+  transformation_library=Transformation_class()
+  noether_library=Noether_comunication()
+  rospy.Subscriber("/tf",TFMessage,tf_subscriber)
   rospy.set_param("/CloseSystem",False)
+  xyz_actual=[0,0,0]
 
+  bool_move_group_initialized=True
+  movegroup_library=Move_group_class()
+  define_std_matrices()
+def define_std_matrices():
+  global T_base_camera_depth
+  nul=0
+  #da ee a tool -90 su x 90 su y
+
+def publish_pointcloud_markers():
+
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"my_cloud.xyz"
+  input_file=open(pathToFile, "r")
+  for x in input_file:
+    x=x.split()
+    add_vector_to_marker_array(x)
+  print(markerArray.markers)
+def publish_percorso_calcolato():
+
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('ur10_control')
+  pathTopkg=pathTopkg+"/Prova/"
+  pathToFile=pathTopkg+"percorso.xyz"
+  input_file=open(pathToFile, "r")
+  for x in input_file:
+    x=x.split()
+    add_vector_to_marker_array(x)
+    time.sleep(1)
+    pub.publish(markerArray)
+  print(markerArray.markers)
+def add_vector_to_marker_array(vet):
+  global marker_cont
+  marker=Marker()
+  marker.header.frame_id = "base"
+  marker.header.stamp = rospy.get_rostime()
+
+  marker.ns = ""
+  marker.id = marker_cont
+  marker.type = visualization_msgs.msg.Marker.SPHERE
+  marker.action = 0
+  marker.pose=Pose()
+  marker.pose.position.x=float(vet[0])
+  marker.pose.position.y=float(vet[1])
+  marker.pose.position.z=float(vet[2])
+  marker.pose.orientation.w=1
   
+  #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+  #R2=transformation_library.eul2rot([0,math.pi/2,0])
+  #R=np.dot(R1,R2)
+  #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+  #marker.pose.orientation=pose_quat.orientation
+
+  marker.scale.x = 0.01
+  marker.scale.y = 0.01
+  marker.scale.z = 0.01
+  marker.color.a = 1.0; 
+  marker.color.r = 0.0
+  marker.color.g = 1.0
+  marker.color.b = 0.0
+
+
+  markerArray.markers.append(marker)
+  marker_cont=marker_cont+1
 def elaboraManualCloud():
   rospy.set_param("/elaborate_manual_pointcloud",True)
 def salva_punto_nella_pointcloud():
@@ -667,9 +1056,12 @@ def salva_punto_nella_pointcloud():
   pathToFile=pathTopkg+"my_cloud.xyz"
   
   output = open(pathToFile, "a")
-  x=pose.pose.position.x
-  y=pose.pose.position.y
-  z=pose.pose.position.z
+  #x=pose.pose.position.x
+  #y=pose.pose.position.y
+  #z=pose.pose.position.z
+  x=xyz_actual[0]
+  y=xyz_actual[1]
+  z=xyz_actual[2]
   output.write(str(x)+" "+str(y)+" "+str(z)+"\n")
 def eliminare_ultimo_punto_cloud():
 
@@ -687,19 +1079,247 @@ def eliminare_ultimo_punto_cloud():
 
   output = open(pathToFile, "w")
   output.writelines(file_strings)
+def go_to_all_poses_of_cloud():
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"my_normals.pcd"
+  input_file = open(pathToFile, "r")
+  cont=0
+  cont2=0
+  for x in input_file:
+    cont=cont+1
+    
+    if(cont>11):
+      s=x.split()
+      if(s[0]!="nan"):
+        print(s)
+        cont2=cont2+1
+        if(cont2>20):
+          print("force to exit")
+          return
+        pos=movegroup_library.get_current_ee_pose().pose
+        pos.position.x=float(s[0])
+        pos.position.y=float(s[1])
+        pos.position.z=float(s[2])
+        #pos.position.x=0.1
+        #pos.position.y=0
+        #pos.position.z=0
+        
+        #pos.orientation.x=float(s[3])
+        #pos.orientation.y=float(s[4])
+        #pos.orientation.z=float(s[5])
+        #pos.orientation.w=float(s[6])
+        
+        pos.position.z=pos.position.z+0
+        quat=transformation_library.from_euler_to_quaternion([float(s[3]),float(s[4]),float(s[5])])
+        pos.orientation=quat.orientation
+
+        #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,math.pi/2,0])
+        T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
 
 
+
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,0,math.pi])
+        T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+        T_actual=transformation_library.from_pose_to_matrix(pos)
+
+
+        T_final=np.dot(T_sr_change,T_actual)
+        T_final=np.dot(T_final,T_normal)
+        Pos_final=transformation_library.from_matrix_to_pose(T_final)
+        print(Pos_final)
+        movegroup_library.go_to_pose_goal(Pos_final)
+def read_traj_from_file_and_publish():
+  noether_library.read_traj_from_file()
+  noether_library.publish_traj()
+def go_to_all_poses_of_traj_file():
+  global bool_exit
+  
+  noether_library.associate_traj_and_normals_points()
+  pose_array=noether_library.real_traj
+  for pose in pose_array:
+    #transformation_library.from_euler_to_quaternion([0,0,0])
+
+    #rotate sdr
+    trans=[0,0,0]
+    R=transformation_library.eul2rot([0,0,math.pi])
+    T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+    T_target=transformation_library.from_pose_to_matrix(pose)
+
+
+    T_final=np.dot(T_sr_change,T_target)
+    Pos_final=transformation_library.from_matrix_to_pose(T_final)
+    movegroup_library.go_to_pose_goal(Pos_final)
+    bool_exit=rospy.get_param("/CloseSystem")
+    if bool_exit:
+      return
+def cambia_valore_di_alpha():
+  alpha = input("\n Inserisci nuovo valore di alpha\n Risposta:")
+  rospy.set_param("/alpha",alpha)
+
+
+#pointcloud_from_camera
+def salva_nuove_coordinate():
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"mesh.pcd"
+  pathToNewCoordinates=pathTopkg+"new_coordinates.pcd"
+  input_file = open(pathToFile, "r")
+  output_file = open(pathToNewCoordinates, "w")
+  cont=0
+  cont2=0
+
+  T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+  pos=movegroup_library.get_current_ee_pose().pose
+  for x in input_file:
+    cont=cont+1
+    
+
+
+    if(cont>12):
+      s=x.split()
+      if(s[0]!="nan"):
+        cont2=cont2+1
+        #print(s)
+        pos.position.x=float(s[0])
+        pos.position.y=float(s[1])
+        pos.position.z=float(s[2])
+        #pos.position.x=0.1
+        #pos.position.y=0
+        #pos.position.z=0
+        
+        target_rpy_vet=[float(s[3]),float(s[4]),float(s[5])]
+        quaternion_target=transformation_library.from_euler_to_quaternion(target_rpy_vet)
+        pos.orientation=quaternion_target.orientation
+
+        T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pos)
+        
+
+        T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
+        
+        target=transformation_library.from_matrix_to_pose(T_base_target)
+        #target.orientation=movegroup_library.get_current_ee_pose().pose.orientation
+        #print(target)
+        #print(transformation_library.rpy_from_quat(target.orientation))
+        output_file.writelines(str(target.position.x)+" "+str(target.position.y)+" "+str(target.position.z)+" "+str(target.orientation.x)+" "+str(target.orientation.y)+" "+str(target.orientation.z)+" "+str(target.orientation.w)+"\n")
+def go_to_all_traj_pose_wrt_camera():
+  global bool_exit
+  #this function works with all the points in the camera reference system
+  noether_library.CAMERA_associate_traj_and_normals_points()
+  #noether_library.go_to_all_normals_CAMERA()
+  #return
+  pose_array=noether_library.real_traj
+  #print(pose_array)
+  for pose in pose_array:
+    #print(pose)
+    #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+    #trans=[0,0,0]
+    #R=transformation_library.eul2rot([0,-math.pi/2,0])
+    #T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+
+
+    #T_actual=transformation_library.from_pose_to_matrix(pose)
+
+
+    #T_final=np.dot(T_actual,T_normal)
+        
+    #Pos_final=transformation_library.from_matrix_to_pose(T_final)
+    movegroup_library.go_to_pose_goal(pose)
+    bool_exit=rospy.get_param("/CloseSystem")
+    if bool_exit:
+      return
+
+
+def tf_subscriber(msg):
+  global xyz_actual
+  nul=0
+  msg=msg.transforms[0]
+  if(msg.child_frame_id!="tool0_controller"):
+    return
+  xyz_actual=[-msg.transform.translation.x,-msg.transform.translation.y,msg.transform.translation.z]
+def clean_markers():
+  global markerArray,marker_cont
+  markerArray=MarkerArray()
+  for cont_to_delete in range(0,10000):
+    marker=Marker()
+    marker.header.frame_id = "cameradepth_link"
+
+    marker.ns = ""
+    marker.id = cont_to_delete
+    marker.action = 2
+
+    markerArray.markers.append(marker)
+  pub.publish(markerArray)
 def main():
-  define_all_initial_functions()  
+  global movegroup_library,bool_move_group_initialized,marker_cont,markerArray
+  global pub
+  define_all_initial_functions()
+
+  markerArray=MarkerArray()
+  marker_cont=0
   value=-1
-  while value!=0:
-    value = input("\n 0)Esci\n 1)Vuoi salvare il punto nella cloud?:\n 2)Vuoi elaborare e vedere la cloud?\n 3)Vuoi eliminare l'ultimo punto inserito?\n Risposta:")
+  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+  while value!=0 and not bool_exit:
+    if not marker_cont==0 :
+      pub.publish(markerArray)
+    print("\n 0)Esci\n 1)Vuoi salvare il punto nella cloud?:\n 2)Vuoi elaborare e vedere la cloud?\n 3)Vuoi eliminare l'ultimo punto inserito?\n 4)Go to all poses")
+    print(" 5)Salva nuove coordinate\n 6)Cambia Alpha ed elabora cloud\n 7)Publish Pointcloud as markers\n 8)Publish percorso calcolato\n 9)Clean markers")
+    print(" 10)Publish all-camera\n 11)Go to all-camera\n")  
+    value = input("Risposta:")
     if(value==1):
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
       salva_punto_nella_pointcloud()
     if(value==2):
       elaboraManualCloud()
     if(value==3):
       eliminare_ultimo_punto_cloud()
+    if(value==4):
+
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
+      go_to_all_poses_of_traj_file()
+    if(value==5):
+      salva_nuove_coordinate()
+    if(value==6):
+      cambia_valore_di_alpha()
+      elaboraManualCloud()
+    if(value==7):
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
+      publish_pointcloud_markers()
+    if(value==8):
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
+      publish_percorso_calcolato()
+    if(value==9):
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
+      clean_markers()
+    if(value==10):
+      if not bool_move_group_initialized:
+        bool_move_group_initialized=True
+        movegroup_library=Move_group_class()
+      
+      #this function works with all the points in the camera reference system
+      noether_library.CAMERA_associate_traj_and_normals_points()
+      noether_library.publish_normals()
+      noether_library.publish_traj_CAMERA()
+      noether_library.publish_traj_with_normals()
+    if(value==11):
+      go_to_all_traj_pose_wrt_camera()
   rospy.set_param("/CloseSystem",True)
 
 if __name__ == '__main__':

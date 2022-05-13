@@ -1,0 +1,2 @@
+gcc traj_planning.c -o traj -lm
+
