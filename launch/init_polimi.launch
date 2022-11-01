@@ -18,6 +18,7 @@
       <node name="my_opencv" pkg="ur10_control" type="my_opencv.py" respawn="false" output="screen"></node>
   	
       <node name="control_py" pkg="ur10_control" type="control_py.py" respawn="false" output="screen"></node>
+      <node name="script_test_polimi" pkg="ur10_control" type="script_test_polimi.py" respawn="false" output="screen"></node>
 
       <!--node name="handle_manual_pointcloud" pkg="pcl_zk" type="handle_manual_pointcloud.py" respawn="false" output="screen"></node-->
 

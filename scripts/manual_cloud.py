@@ -11,6 +11,9 @@ from logging import setLoggerClass
 from math import cos, pi, sin
 from os import access
 from re import X
+from unittest import result
+
+from cv2 import transform
 import geometry_msgs.msg
 import moveit_commander
 import moveit_msgs.msg
@@ -162,7 +165,14 @@ class Transformation_class():
     dy=(y1-y2)*(y1-y2)
     dz=(z1-z2)*(z1-z2)
     return math.sqrt(dx+dy+dz)
-
+  def rotate_pose(self,pose,angle_vect):
+    R=self.eul2rot(angle_vect)
+    transl=[0,0,0]
+    T_transf=self.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,transl)
+    T_tool=self.from_pose_to_matrix(pose)
+    T_result=np.dot(T_tool,T_transf)
+    pose_final=self.from_matrix_to_pose(T_result)
+    return pose_final
 class Collision_Box():
     def __init__(self):
         self.box_pose = PoseStamped()
@@ -682,6 +692,7 @@ class Noether_comunication(object):
     self.bool_associazione_completata=False
 
     marker_cont=0
+    self.cont_collision=0
   def noether_result_callback(self,msg):
     self.all_poses_in_traj=[]
     tool_paths=msg.result.tool_paths
@@ -869,6 +880,26 @@ class Noether_comunication(object):
 
     pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
     pub.publish(markerArray)
+  def make_pointcloud_as_collision(self):
+      print("rendo la poincloud collisibile")
+      jump=0
+      for x in self.all_normals:
+        jump=jump+1
+        if(jump%1==0):
+          collision_box=Collision_Box()
+          collision_box.box_name=str(self.cont_collision)
+          collision_box.box_size[0]=0.001
+          collision_box.box_size[1]=0.001
+          collision_box.box_size[2]=0.001
+          collision_box.box_pose.header.frame_id="cameradepth_link"
+          pose_orientation=transformation_library.from_euler_to_quaternion([0,0,0])
+          collision_box.box_pose.pose.orientation=pose_orientation.orientation
+          collision_box.box_pose.pose.position.x=x.position.x
+          collision_box.box_pose.pose.position.y=x.position.y
+          collision_box.box_pose.pose.position.z=x.position.z
+          movegroup_library.add_box(collision_box)
+          self.cont_collision=self.cont_collision+1
+  
   def CAMERA_leggi_normals(self):
     #this function works with all the points in the camera reference system
     rospack = rospkg.RosPack()
@@ -909,7 +940,11 @@ class Noether_comunication(object):
     if not self.bool_normals_saved :
       self.CAMERA_leggi_normals()
     T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
-
+    print("Inizio ad eseguire l'associazione, ci vorra un po")
+    print("Ricordati che ogni punto e' stato traslato di 1 cm per non collidere")
+    trans=[-0.01,0,0]
+    R=transformation_library.eul2rot([0,0,0])
+    T_target_to_approach=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
 
     for traj_pose in self.all_poses_in_traj:
       min=1000
@@ -924,7 +959,10 @@ class Noether_comunication(object):
       pos_target=normal_piu_vicina
       T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pos_target)
       T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
-      final_target=transformation_library.from_matrix_to_pose(T_base_target)
+
+      T_base_target_approach=np.dot(T_base_target,T_target_to_approach)
+
+      final_target=transformation_library.from_matrix_to_pose(T_base_target_approach)
       #print(final_target)
       #print(pos_target)
       #time.sleep(1)
@@ -972,7 +1010,7 @@ class Noether_comunication(object):
 def define_all_initial_functions():
   global comunication_object,transformation_library,movimenti_base_library,aruco_library
   global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user,markerArray,pub,marker_cont
-  global xyz_actual,noether_library,movegroup_library,bool_move_group_initialized
+  global xyz_actual,noether_library,movegroup_library,bool_move_group_initialized,marker_cont,markerArray,pub
   bool_message_from_user=False
   transformation_library=Transformation_class()
   noether_library=Noether_comunication()
@@ -983,11 +1021,14 @@ def define_all_initial_functions():
   bool_move_group_initialized=True
   movegroup_library=Move_group_class()
   define_std_matrices()
+  markerArray=MarkerArray()
+  marker_cont=0
+  value=-1
+  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)  
 def define_std_matrices():
   global T_base_camera_depth
   nul=0
   #da ee a tool -90 su x 90 su y
-
 def publish_pointcloud_markers():
 
   rospack = rospkg.RosPack()
@@ -1012,6 +1053,65 @@ def publish_percorso_calcolato():
     time.sleep(1)
     pub.publish(markerArray)
   print(markerArray.markers)
+def publish_percorso_polimilano():
+
+  clean_markers()
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('ur10_control')
+  pathToFile=pathTopkg+"/../traj_planning_polimi/output_traj.txt"
+  input_file=open(pathToFile, "r")
+  for x in input_file:
+    x=x.split()
+
+    pose=Pose()
+    pose.position.x=float(x[0])+0.2
+    pose.position.y=float(x[1])+0.2
+    pose.position.z=float(x[2])+0.6
+    pose.orientation.x=float(x[3])
+    pose.orientation.y=float(x[4])
+    pose.orientation.z=float(x[5])
+    pose.orientation.w=float(x[6])
+    pose=transformation_library.rotate_pose(pose,[0,math.pi/2,0])
+    #pose=transformation_library.rotate_pose(pose,[0,math.pi/2,0])
+    #pose=transformation_library.rotate_pose(pose,[math.pi/2,0,0])
+
+    add_geom_pose_to_marker_array(pose)
+    #time.sleep(0.3)
+    #print("Printing")
+    movegroup_library.go_to_pose_goal(pose)
+    pub.publish(markerArray)
+  #print(markerArray.markers)
+def add_geom_pose_to_marker_array(pose):
+  global marker_cont
+  marker=Marker()
+  marker.header.frame_id = "base_link"
+  marker.header.stamp = rospy.get_rostime()
+
+  marker.ns = ""
+  marker.id = marker_cont
+  marker.type = visualization_msgs.msg.Marker.ARROW
+  marker.action = 0
+  marker.pose=Pose()
+  marker.pose=pose
+  
+  #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+  #R2=transformation_library.eul2rot([0,math.pi/2,0])
+  #R=np.dot(R1,R2)
+  #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+  #marker.pose.orientation=pose_quat.orientation
+
+  marker.scale.x = 0.05
+  marker.scale.y = 0.005
+  marker.scale.z = 0.005
+  marker.color.a = 1.0; 
+  marker.color.r = 0.0
+  marker.color.g = 1.0
+  marker.color.b = 0.0
+
+
+  markerArray.markers.append(marker)
+  marker_cont=marker_cont+1
+
 def add_vector_to_marker_array(vet):
   global marker_cont
   marker=Marker()
@@ -1257,21 +1357,39 @@ def clean_markers():
 
     markerArray.markers.append(marker)
   pub.publish(markerArray)
+def prova():
+  global comunication_object,transformation_library,movimenti_base_library,aruco_library
+  global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user,markerArray,pub,marker_cont
+  global xyz_actual,noether_library,movegroup_library,bool_move_group_initialized,marker_cont,markerArray,pub
+  bool_message_from_user=False
+  rospy.init_node('state_machine', anonymous=True)
+  transformation_library=Transformation_class()
+  noether_library=Noether_comunication()
+  rospy.Subscriber("/tf",TFMessage,tf_subscriber)
+  rospy.set_param("/CloseSystem",False)
+  xyz_actual=[0,0,0]
+
+  bool_move_group_initialized=True
+  #movegroup_library=Move_group_class()
+  define_std_matrices()
+  markerArray=MarkerArray()
+  marker_cont=0
+  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)  
+  publish_percorso_polimilano()
 def main():
   global movegroup_library,bool_move_group_initialized,marker_cont,markerArray
   global pub
-  define_all_initial_functions()
+  #prova()
 
-  markerArray=MarkerArray()
-  marker_cont=0
+
+  define_all_initial_functions()
   value=-1
-  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
   while value!=0 and not bool_exit:
     if not marker_cont==0 :
       pub.publish(markerArray)
-    print("\n 0)Esci\n 1)Vuoi salvare il punto nella cloud?:\n 2)Vuoi elaborare e vedere la cloud?\n 3)Vuoi eliminare l'ultimo punto inserito?\n 4)Go to all poses")
+    print("\n 0)Esci\n 1)Vuoi salvare il punto nella cloud?:\n 2)Vuoi elaborare e vedere la cloud?\n 3)Vuoi eliminare l'ultimo punto inserito?\n 4)Create collision")
     print(" 5)Salva nuove coordinate\n 6)Cambia Alpha ed elabora cloud\n 7)Publish Pointcloud as markers\n 8)Publish percorso calcolato\n 9)Clean markers")
-    print(" 10)Publish all-camera\n 11)Go to all-camera\n")  
+    print(" 10)Publish all-camera\n 11)Go to all-camera\n 12)POLIMI")  
     value = input("Risposta:")
     if(value==1):
       if not bool_move_group_initialized:
@@ -1283,11 +1401,9 @@ def main():
     if(value==3):
       eliminare_ultimo_punto_cloud()
     if(value==4):
-
-      if not bool_move_group_initialized:
-        bool_move_group_initialized=True
-        movegroup_library=Move_group_class()
-      go_to_all_poses_of_traj_file()
+      noether_library.CAMERA_associate_traj_and_normals_points()
+      noether_library.make_pointcloud_as_collision()
+      noether_library.cont_collision=0
     if(value==5):
       salva_nuove_coordinate()
     if(value==6):
@@ -1320,6 +1436,8 @@ def main():
       noether_library.publish_traj_with_normals()
     if(value==11):
       go_to_all_traj_pose_wrt_camera()
+    if(value==12):
+      publish_percorso_polimilano()
   rospy.set_param("/CloseSystem",True)
 
 if __name__ == '__main__':

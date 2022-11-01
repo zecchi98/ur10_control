@@ -82,21 +82,21 @@
     <item>
      <widget class="QPushButton" name="pushButton_8">
       <property name="text">
-       <string>Elabora Cloud</string>
+       <string>Elabora Cloud XXXX</string>
       </property>
      </widget>
     </item>
     <item>
      <widget class="QPushButton" name="pushButton_4">
       <property name="text">
-       <string>Ruota e cerca aruco selezionato tra quelli per terra</string>
+       <string>Plot Points</string>
       </property>
      </widget>
     </item>
     <item>
      <widget class="QPushButton" name="pushButton_3">
       <property name="text">
-       <string>Posizione vista pannello</string>
+       <string>Follow Trajectory keeping distance</string>
       </property>
      </widget>
     </item>
@@ -105,7 +105,7 @@
       <item>
        <widget class="QPushButton" name="pushButton_5">
         <property name="text">
-         <string>Muoviti fino all'aruco selezionato</string>
+         <string>xxxxx</string>
         </property>
        </widget>
       </item>
@@ -116,7 +116,7 @@
       <item>
        <widget class="QPushButton" name="pushButton_6">
         <property name="text">
-         <string>Select Aruco</string>
+         <string>ChangeDistanceFromObject</string>
         </property>
        </widget>
       </item>
@@ -245,7 +245,7 @@
    <sender>pushButton_3</sender>
    <signal>clicked()</signal>
    <receiver>stop_traj_button</receiver>
-   <slot>automazione_PosPannello()</slot>
+   <slot>FollowTrajectory()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>262</x>
@@ -261,7 +261,7 @@
    <sender>pushButton_4</sender>
    <signal>clicked()</signal>
    <receiver>stop_traj_button</receiver>
-   <slot>ruota_e_cerca_aruco()</slot>
+   <slot>PlotPoints()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>288</x>
@@ -293,10 +293,10 @@
    <sender>pushButton_6</sender>
    <signal>clicked()</signal>
    <receiver>stop_traj_button</receiver>
-   <slot>automazione_pannello_nextAruco()</slot>
+   <slot>ChangeDistanceFromObj()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>236</x>
+     <x>232</x>
      <y>293</y>
     </hint>
     <hint type="destinationlabel">
@@ -447,13 +447,13 @@
   <slot>goToManualPose()</slot>
   <slot>goToAutomazione()</slot>
   <slot>goToMainMenu()</slot>
-  <slot>automazione_PosPannello()</slot>
+  <slot>FollowTrajectory()</slot>
   <slot>automazione_pannello_Completa()</slot>
   <slot>automazione_pannello_MoveToSelectedAruco()</slot>
-  <slot>automazione_pannello_nextAruco()</slot>
+  <slot>ChangeDistanceFromObj()</slot>
   <slot>stop_traj_clicked()</slot>
   <slot>ruota_e_cerca_pannello()</slot>
-  <slot>ruota_e_cerca_aruco()</slot>
+  <slot>PlotPoints()</slot>
   <slot>centra_aruco()</slot>
   <slot>centra_aruco_and_zoom_in()</slot>
   <slot>centra_aruco_and_zoom_out()</slot>

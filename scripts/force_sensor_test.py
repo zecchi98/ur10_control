@@ -11,9 +11,6 @@ from logging import setLoggerClass
 from math import cos, pi, sin
 from os import access
 from re import X
-
-#from pytest import Mark, mark
-
 import geometry_msgs.msg
 import moveit_commander
 import moveit_msgs.msg
@@ -33,10 +30,12 @@ from visualization_msgs.msg import *
 from robodk import robolink, robomath      # import the robotics toolbox
 from scipy.spatial.transform import Rotation 
 import rospkg
+from tf2_msgs.msg import TFMessage
 
 bool_robodk_enabled=False
 flagMiddlePanelCreated=False
 bool_exit=False
+bool_move_group_initialized=False
 class Transformation_class():
   def __init__(self):
         null=0
@@ -152,6 +151,18 @@ class Transformation_class():
     return pose
   def inverse_matrix(self,AffineMat):
     return np.linalg.inv(AffineMat)
+  def compute_distance_pose(self,pose1,pose2):
+    x1=pose1.position.x
+    y1=pose1.position.y
+    z1=pose1.position.z
+    x2=pose2.position.x
+    y2=pose2.position.y
+    z2=pose2.position.z
+    dx=(x1-x2)*(x1-x2)
+    dy=(y1-y2)*(y1-y2)
+    dz=(z1-z2)*(z1-z2)
+    return math.sqrt(dx+dy+dz)
+
 class Collision_Box():
     def __init__(self):
         self.box_pose = PoseStamped()
@@ -577,11 +588,37 @@ class Move_group_class(object):
     print(rpy)
   def get_current_ee_pose(self):
     return self.move_group.get_current_pose()
+  def get_T_base_camera_depth(self):
+    trans=[0,0,0]
+    R=transformation_library.eul2rot([0,0,math.pi])
+    T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+    R_tool_camera=transformation_library.eul2rot([0,-math.pi/2,math.pi/2])
+    trans_tool_camera=[0,0,0]
+    T_tool_camera=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_tool_camera,trans_tool_camera)
+
+    R_camera_camera_depth=transformation_library.eul2rot([-math.pi/2,0,-math.pi/2])
+    trans_camera_camera_depth=[0,0,0]
+    T_camera_camera_depth=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_camera_camera_depth,trans_camera_camera_depth)
+
+
+    R_ee_tool=transformation_library.eul2rot([-math.pi/2,0,-math.pi/2])
+    trans_ee_tool=[0,0,0]
+    T_ee_tool=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R_ee_tool,trans_ee_tool)
+
+
+    pose_ee=movegroup_library.get_current_ee_pose().pose
+    T_base_ee=transformation_library.from_pose_to_matrix(pose_ee)
+
+    #T_base_ee_changed=np.dot(T_sr_change,T_base_ee)
+    T_base_tool=np.dot(T_base_ee,T_ee_tool)
+    T_tool_camera_depth=np.dot(T_tool_camera,T_camera_camera_depth)
+    T_base_camera_depth=np.dot(T_base_tool,T_tool_camera_depth)
+    return T_base_camera_depth
 class Comunication_class(object):
   def __init__(self):
     super(Comunication_class, self).__init__()
     self.bridge_service_information = rospy.ServiceProxy('cv_server', cv_server)
-    self.polimi_service = rospy.ServiceProxy('polimi_service', UserInterface)
   def call_cv_service(self,first_information,second_information):
     
     try:
@@ -628,16 +665,26 @@ class Comunication_class(object):
     else:
       ValidMatrix.is_valid=False
     return ValidMatrix
-  def send_msg_to_polimi(self,msg):
-
-        msg = self.polimi_service(msg)
-        return UserInterfaceResponse()
 class Noether_comunication(object):
   def __init__(self):
+    global marker_cont
     super(Noether_comunication, self).__init__()
-    rospy.Subscriber("/generate_tool_paths/result",GenerateToolPathsActionResult,self.noether_result_callback)
-  def noether_result_callback(self,msg):
+    #rospy.Subscriber("/generate_tool_paths/result",GenerateToolPathsActionResult,self.noether_result_callback)
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathToFile=pathTopkg+"/data/traiettoria.txt"
+    self.all_poses_in_traj=[]
+    self.all_normals=[]
+    self.real_traj=[]
+    self.pathToFile=pathToFile
+    self.bool_traj_saved=False
+    self.bool_normals_saved=False
+    self.bool_associazione_completata=False
 
+    marker_cont=0
+    self.cont_collision=0
+  def noether_result_callback(self,msg):
+    self.all_poses_in_traj=[]
     tool_paths=msg.result.tool_paths
     for tool_path in tool_paths:
       paths=tool_path.paths
@@ -647,623 +694,377 @@ class Noether_comunication(object):
           poses=segment.poses
           #movegroup_library.follow_pose_trajectory(poses)
           for pose in poses:
-            print(pose)
+            #print(pose)
             #movegroup_library.go_to_pose_cartesian(pose)
             #time.sleep(1)
             add_pose_to_marker_array(pose)
-class RoboDK_class():
-  def __init__(self):
-    self.RDK = robolink.Robolink()
-    self.robot = self.RDK.Item('UR10')      # retrieve the robot by name
-    print("Robodk initialized")
-  def prova_movimento(self):  
-    RDK=self.RDK
-    robot=self.robot
-    #robot.setJoints([0,0,0,0,0,0])      # set all robot axes to zero
-    time.sleep(2)
-    target = RDK.Item('Home')         # retrieve the Target item
-    robot.MoveJ(target)                 # move the robot to the target
-
-    target = RDK.Item('Approach')         # retrieve the Target item
-    robot.MoveJ(target)                 # move the robot to the target
-    approach = target.Pose()*robomath.transl(0,0,-100)
-    print(approach)
-    robot.MoveL(approach) #Linear move to approach
-  def go_to_posedk(self,matrix_dk):
-    RDK=self.RDK
-    robot=self.robot
-
-    solution=self.robot.SolveIK(matrix_dk)
-    if not self.check_if_matrix_is_a_valid_pose(matrix_dk):
-      return False
-    robot.MoveJ(matrix_dk) #Linear move to approachs
-    return True
-  def from_std_pose_to_robotdk_pose(self,std_pose):
-    #std_pose significa la pose classica usata per moveit
-    RDK=self.RDK
-    robot=self.robot
+            self.all_poses_in_traj.append(pose)
+    self.save_traiettoria()
+  def save_traiettoria(self):
     
-    orientation_array=transformation_library.rpy_from_quat(std_pose.orientation)
-    orientation_array[0]=transformation_library.rad_to_grad(orientation_array[0])
-    orientation_array[1]=transformation_library.rad_to_grad(orientation_array[1])
-    orientation_array[2]=transformation_library.rad_to_grad(orientation_array[2])
-    pose=robomath.Pose(std_pose.position.x,std_pose.position.y,std_pose.position.z,
-                      orientation_array[0],orientation_array[1],orientation_array[2])
-    return pose
-  def get_actual_matrix(self):
-    RDK=self.RDK
-    robot=self.robot
-     # retrieve the robot by name
-    return robot.Pose()
-  def from_matrix_to_posedk_vect(self,matrix):
+    output_file = open(self.pathToFile, "w")
+    for pose in self.all_poses_in_traj:
+      x=str(pose.position.x)
+      y=str(pose.position.y)
+      z=str(pose.position.z)
+      ox=str(pose.orientation.x)
+      oy=str(pose.orientation.y)
+      oz=str(pose.orientation.z)
+      ow=str(pose.orientation.w)
+      output_file.write(x+" "+y+" "+z+" "+ox+" "+oy+" "+oz+" "+ow+"\n")
+    output_file.close()
+    print("Finish to plot and save trajectory\n\n")
+  def read_traj_from_file(self):
+    nul=0
+    self.all_poses_in_traj=[]
+    input_file = open(self.pathToFile, "r")
+    for x in input_file:
+      s=x.split()
+      pose=Pose()
+      pose.position.x=float(s[0])
+      pose.position.y=float(s[1])
+      pose.position.z=float(s[2])
+      pose.orientation.x=float(s[3])
+      pose.orientation.y=float(s[4])
+      pose.orientation.z=float(s[5])
+      pose.orientation.w=float(s[6])
+      self.all_poses_in_traj.append(pose)
+    print("Finished to read traj from file")
+    #print(self.all_poses_in_traj)
+    self.bool_traj_saved=True
+  def read_normals_from_file(self):
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathTopkg=pathTopkg+"/data/"
+    pathToFile=pathTopkg+"my_normals.pcd"
+    input_file = open(pathToFile, "r")
+    cont=0
+    cont2=0
+    for x in input_file:
+      cont=cont+1
     
-    pose_rad=robomath.Pose_2_UR(matrix)
-    orientation_rad=[pose_rad[3],pose_rad[4],pose_rad[5]] 
-    orientation_grad=transformation_library.rpy_from_rad_to_grad(orientation_rad)
-
-    pose_grad=pose_rad
-    pose_grad[3]=orientation_grad[0]
-    pose_grad[4]=orientation_grad[1]
-    pose_grad[5]=orientation_grad[2]
-    #print("Pose_grad:")
-    #print(pose_grad)
-    return pose_grad
-  def from_posedk_vect_to_matrix(self,posedk):
-    return robomath.Pose(posedk[0],posedk[1],posedk[2],posedk[3],posedk[4],posedk[5])
-  def transl(self,axes,step=100):
-    if(axes=="x"):
-      target=self.get_actual_matrix()*robomath.transl(step,0,0)
-    if(axes=="y"):
-      target=self.get_actual_matrix()*robomath.transl(0,step,0)
-    if(axes=="z"):
-      target=self.get_actual_matrix()*robomath.transl(0,0,step)
-
-    self.go_to_posedk(target)
-  def rot(self,axes,step=10):
-    #step is in grads
-    step=transformation_library.grad_to_rad(step)
-    if(axes=="x"):
-      target=self.get_actual_matrix()*robomath.rotx(step)
-    if(axes=="y"):
-      target=self.get_actual_matrix()*robomath.roty(step)
-    if(axes=="z"):
-      target=self.get_actual_matrix()*robomath.rotz(step)
-    self.go_to_posedk(target)
-  def check_if_matrix_is_a_valid_pose(self,matrix):
-
-    solution=self.robot.SolveIK(matrix)
-    for x in solution:
-      if len(x)==1 :
-        print("Errore, out of bounds")
-        return False
-    return True
-  def get_actual_joint(self):
-    j=self.robot.Joints()
-    return j
+      if(cont>11):
+        
+        s=x.split()
+        if(s[0]!="nan"):
+          pos=movegroup_library.get_current_ee_pose().pose
+          pos.position.x=float(s[0])
+          pos.position.y=float(s[1])
+          pos.position.z=float(s[2])
+          quat=transformation_library.from_euler_to_quaternion([float(s[3]),float(s[4]),float(s[5])])
+          pos.orientation=quat.orientation
+          trans=[0,0,0]
+          R=transformation_library.eul2rot([0,math.pi/2,0])
+          T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
 
 
+
+          T_actual=transformation_library.from_pose_to_matrix(pos)
+
+          T_final=np.dot(T_actual,T_normal)
+          Pos_final=transformation_library.from_matrix_to_pose(T_final)
+
+
+          self.all_normals.append(Pos_final)
+    self.bool_normals_saved=True
+    print("Normals reading completed")
+  def associate_traj_and_normals_points(self):
+    if not self.bool_traj_saved :
+      self.read_traj_from_file()
+    if not self.bool_normals_saved :
+      self.read_normals_from_file()
+     
+    for traj_pose in self.all_poses_in_traj:
+      min=1000
+      for normal_pose in self.all_normals:
+
+        dist=transformation_library.compute_distance_pose(traj_pose,normal_pose)
+        if(dist<min):
+          min=dist
+          normal_piu_vicina=normal_pose
       
+      self.real_traj.append(normal_piu_vicina)
+    
+    print("Associazione finita")
+  def add_pose_to_marker_array_as_points(self,pose,sdr):
+    global marker_cont,markerArray
+    marker=Marker()
+    #marker.header.frame_id = "cameradepth_link"
+    marker.header.frame_id = sdr
+    marker.header.stamp = rospy.get_rostime()
 
-class Movimenti_base_class(object):
-  def __init__(self):
-      super(Movimenti_base_class, self).__init__()
-  def go_to_initial_position(self):
-    joint_vet=movegroup_library.move_group.get_active_joints()
-    joint_vet[0]=transformation_library.grad_to_rad(0)
-    joint_vet[1]=transformation_library.grad_to_rad(-120)
-    joint_vet[2]=transformation_library.grad_to_rad(100)
-    joint_vet[3]=transformation_library.grad_to_rad(20)
-    joint_vet[4]=transformation_library.grad_to_rad(90)
-    joint_vet[5]=transformation_library.grad_to_rad(90)
-    movegroup_library.go_to_joint_state(joint_vet)
-class Aruco_class():
-    def __init__(self):
-      self.Button_1=Pose_valid()
-      self.Button_2=Pose_valid()
-      self.Button_3=Pose_valid()
-      self.Button_4=Pose_valid()
-      self.Button_5=Pose_valid()
-      self.Button_6=Pose_valid()
-      self.Button_7=Pose_valid()
-      self.Button_8=Pose_valid()
-      self.Button_9=Pose_valid()
-      self.IMU_Module=Pose_valid()
-      self.IMU_Destination=Pose_valid()
-      self.Inspection_Window=Pose_valid()
-      self.Inspection_Window_Cover=Pose_valid()
-      self.Inspection_Window_Cover_Storage=Pose_valid()
-      self.number_of_aruco=14
-    def elaborate_number_of_aruco_found(self):
-      cont=0
-      for id in range(1,self.number_of_aruco+1):
-        id_str=str(id)
-        Aruco_valid=self.from_id_to_pose_valid_of_the_aruco(id_str)
-        if(Aruco_valid.is_valid):
-          cont=cont+1
-      return cont
-      """
-      if(self.Button_1.is_valid):
-        cont=cont+1
-      if(self.Button_2.is_valid):
-        cont=cont+1
-      if(self.Button_3.is_valid):
-        cont=cont+1
-      if(self.Button_4.is_valid):
-        cont=cont+1
-      if(self.Button_5.is_valid):
-        cont=cont+1
-      if(self.Button_6.is_valid):
-        cont=cont+1
-      if(self.Button_7.is_valid):
-        cont=cont+1
-      if(self.Button_8.is_valid):
-        cont=cont+1
-      if(self.Button_9.is_valid):
-        cont=cont+1
-      if(self.IMU_Module.is_valid):
-        cont=cont+1
-      if(self.IMU_Destination.is_valid):
-        cont=cont+1
-      if(self.Inspection_Window.is_valid):
-        cont=cont+1
-      if(self.Inspection_Window_Cover.is_valid):
-        cont=cont+1
-      if(self.Inspection_Window_Cover_Storage.is_valid):
-        cont=cont+1
-      """
-    def print_situation_aruco(self):
-      tot=self.elaborate_number_of_aruco_found()
-      print("\nTotal aruco found:"+str(tot))
-    def from_id_to_pose_valid_of_the_aruco(self,id):
-      #INPUT: id dell aruco in stringa(per esempio, il Button1 ha id="1")
-      #Output: Pose_valid classe, dove puoi controllare se l aruco e stato trovato e qual'e il suo valore
-      
-      if(id=="1"):
-        return self.Button_1
-      if(id=="2"):
-        return self.Button_2
-      if(id=="3"):
-        return self.Button_3
-      if(id=="4"):
-        return self.Button_4
-      if(id=="5"):
-        return self.Button_5
-      if(id=="6"):
-        return self.Button_6
-      if(id=="7"):
-        return self.Button_7
-      if(id=="8"):
-        return self.Button_8
-      if(id=="9"):
-        return self.Button_9
-      if(id=="10"):
-        return self.IMU_Module
-      if(id=="11"):
-        return self.IMU_Destination
-      if(id=="12"):
-        return self.Inspection_Window
-      if(id=="13"):
-        return self.Inspection_Window_Cover
-      if(id=="14"):
-        return self.Inspection_Window_Cover_Storage
-      print("NO aruco corresponds to your request")
-      return Pose_valid()
-    def set_new_aruco(self,id,pose_aruco):
-      
+    marker.ns = ""
+    marker.id = marker_cont
+    marker.type = visualization_msgs.msg.Marker.ARROW
+    marker.action = 0
+    marker.pose=pose  
+    
+    #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+    #R2=transformation_library.eul2rot([0,math.pi/2,0])
+    #R=np.dot(R1,R2)
+    #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+    #marker.pose.orientation=pose_quat.orientation
 
-      if(id=="1"):
-        self.Button_1.is_valid=True
-        self.Button_1.pose=pose_aruco
-      if(id=="2"):
-        self.Button_2.is_valid=True
-        self.Button_2.pose=pose_aruco
-      if(id=="3"):
-        self.Button_3.is_valid=True
-        self.Button_3.pose=pose_aruco
-      if(id=="4"):
-        self.Button_4.is_valid=True
-        self.Button_4.pose=pose_aruco
-      if(id=="5"):
-        self.Button_5.is_valid=True
-        self.Button_5.pose=pose_aruco
-      if(id=="6"):
-        self.Button_6.is_valid=True
-        self.Button_6.pose=pose_aruco
-      if(id=="7"):
-        self.Button_7.is_valid=True
-        self.Button_7.pose=pose_aruco
-      if(id=="8"):
-        self.Button_8.is_valid=True
-        self.Button_8.pose=pose_aruco
-      if(id=="9"):
-        self.Button_9.is_valid=True
-        self.Button_9.pose=pose_aruco
-      if(id=="10"):
-        self.IMU_Module.is_valid=True
-        self.IMU_Module.pose=pose_aruco
-      if(id=="11"):
-        self.IMU_Destination.is_valid=True
-        self.IMU_Destination.pose=pose_aruco
-      if(id=="12"):
-        self.Inspection_Window.is_valid=True
-        self.Inspection_Window.pose=pose_aruco
-      if(id=="13"):
-        self.Inspection_Window_Cover.is_valid=True
-        self.Inspection_Window_Cover.pose=pose_aruco
-      if(id=="14"):
-        self.Inspection_Window_Cover_Storage.is_valid=True
-        self.Inspection_Window_Cover_Storage.pose=pose_aruco
-    def cambia_id_aruco_selezionato(self,ID):
-      res=comunication_object.call_bridge_service("md_next_aruco",ID) 
-      for i in range(100):
-        time.sleep(0.1)
-        res=comunication_object.call_bridge_service("","")
-        if str(res.id_aruco)==ID:
-          return True
+    
+    marker.scale.x = 0.01
+    marker.scale.y = 0.002
+    marker.scale.z = 0.002
+    marker.color.a = 1.0; 
+    marker.color.r = 0.0
+    marker.color.g = 1.0
+    marker.color.b = 1.0
+
+
+    markerArray.markers.append(marker)
+    marker_cont=marker_cont+1        
+  def add_pose_to_marker_array_as_arrows(self,pose,sdr):
+    global marker_cont,markerArray
+    marker=Marker()
+    #marker.header.frame_id = "cameradepth_link"
+    marker.header.frame_id = sdr
+    marker.header.stamp = rospy.get_rostime()
+
+    marker.ns = ""
+    marker.id = marker_cont
+    marker.type = visualization_msgs.msg.Marker.ARROW
+    marker.action = 0
+    marker.pose=pose  
+    
+    #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+    #R2=transformation_library.eul2rot([0,math.pi/2,0])
+    #R=np.dot(R1,R2)
+    #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+    #marker.pose.orientation=pose_quat.orientation
+
+    marker.scale.x = 0.02
+    marker.scale.y = 0.005
+    marker.scale.z = 0.005
+    marker.color.a = 1.0; 
+    marker.color.r = 0.0
+    marker.color.g = 1.0
+    marker.color.b = 0.0
+
+
+    markerArray.markers.append(marker)
+    marker_cont=marker_cont+1        
+  def publish_traj(self):
+    markerArray=MarkerArray()
+    for x in self.all_poses_in_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"base")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def publish_traj_CAMERA(self):
+    markerArray=MarkerArray()
+    #print(len(self.all_poses_in_traj))
+    for x in self.all_poses_in_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"cameradepth_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def publish_traj_with_normals(self):
+    markerArray=MarkerArray()
+    #print(len(self.all_poses_in_traj))
+    for x in self.real_traj:
+      self.add_pose_to_marker_array_as_arrows(x,"base_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
+  def make_pointcloud_as_collision(self):
+      print("rendo la poincloud collisibile")
+      jump=0
+      for x in self.all_normals:
+        jump=jump+1
+        if(jump%1==0):
+          collision_box=Collision_Box()
+          collision_box.box_name=str(self.cont_collision)
+          collision_box.box_size[0]=0.001
+          collision_box.box_size[1]=0.001
+          collision_box.box_size[2]=0.001
+          collision_box.box_pose.header.frame_id="cameradepth_link"
+          pose_orientation=transformation_library.from_euler_to_quaternion([0,0,0])
+          collision_box.box_pose.pose.orientation=pose_orientation.orientation
+          collision_box.box_pose.pose.position.x=x.position.x
+          collision_box.box_pose.pose.position.y=x.position.y
+          collision_box.box_pose.pose.position.z=x.position.z
+          movegroup_library.add_box(collision_box)
+          self.cont_collision=self.cont_collision+1
+  
+  def CAMERA_leggi_normals(self):
+    #this function works with all the points in the camera reference system
+    rospack = rospkg.RosPack()
+    pathTopkg=rospack.get_path('pcl_zk')
+    pathTopkg=pathTopkg+"/data/"
+    pathToFile=pathTopkg+"real_surface_points.pcd"
+    
+    input_file = open(pathToFile, "r")
+    cont=0
+    cont2=0
+    self.all_normals=[]
+    trans=[0,0,0]
+    cont2=0
+    for x in input_file:
+            s=x.split()
+            cont2=cont2+1
+
+            pos=Pose()
+            pos.position.x=float(s[0])
+            pos.position.y=float(s[1])
+            pos.position.z=float(s[2])
+            pos.orientation.x=float(s[3])
+            pos.orientation.y=float(s[4])
+            pos.orientation.z=float(s[5])
+            pos.orientation.w=float(s[6])
           
-      return False
-    def is_aruco_visible_from_camera(self,ID):
-      #Restituisce se l'aruco e' attualmente visibile dalla camera
-      res=comunication_object.call_bridge_service("md_next_aruco",ID)
-      if str(res.id_aruco)==ID:
-        return res.aruco_found
-      else:
-        self.cambia_id_aruco_selezionato(ID)
-        res=comunication_object.call_bridge_service("md_next_aruco",ID)
-        return res.aruco_found
-    def elaborate_affine_matrix_of_visible_aruco(self,ID):
-      target=Pose_valid()
-      T_camera_gaz_aruco_valid=comunication_object.matrix_from_cv_of_specified_aruco(ID)
-      if not T_camera_gaz_aruco_valid.is_valid :
-        target.is_valid=False
-        #print("Non ho trovato nessun aruco")
-        return target
-
-      target.is_valid=True
-      T_camera_gaz_aruco=T_camera_gaz_aruco_valid.Affine_matrix
-
-      actual_pose=movegroup_library.move_group.get_current_pose().pose
-      T_0_tool=transformation_library.from_pose_to_matrix(actual_pose)
-      T_0_aruco=T_0_tool*T_tool_camera_gazebo*T_camera_gaz_aruco
-
-      target.pose=transformation_library.from_matrix_to_pose(T_0_aruco)  
-
-
-      return target
-    def salva_aruco_visibili_OOOLD(self):
-      nul=0
-      #   self.print_situation_aruco()
-
-      #   res=comunication_object.call_bridge_service("","")
-      #   for id in range(1,len(res.aruco_found)):
-
-      #     id_str=str(id)
-      #     if res.aruco_found[id]:#Controllo che l'aruco sia stato trovato
-            
-      #       collision_to_be_done=False
-      #       if not self.from_id_to_pose_valid_of_the_aruco(id_str).is_valid: #controllo se ho mai trovato questo aruco, in caso negativo aggiungo la collisione che ne deriva
-      #         collision_to_be_done=True
-  
-      #       aruco_valid=self.elaborate_affine_matrix_of_visible_aruco(id_str)#mi calcolo l'aruco
-      #       if aruco_valid.is_valid:#se ho trovato l'aruco
-      #         self.set_new_aruco(id_str,aruco_valid.pose)
-      #         print("Salvo aruco:"+id_str)
-
-      #         if collision_to_be_done:
-      #           self.add_collision_from_aruco(id_str)#aggiungo la collisione corrispondente
-    def save_visible_arucos(self):
-      self.print_situation_aruco()
-      for id in range(1,16):
-        id_str=str(id)
-        mat_valid=comunication_object.matrix_from_cv_of_specified_aruco(id)
-        if mat_valid.is_valid:
-          collision_to_be_done=False
-          if not self.from_id_to_pose_valid_of_the_aruco(id_str).is_valid: #controllo se ho mai trovato questo aruco, in caso negativo aggiungo la collisione che ne deriva
-            collision_to_be_done=True
- 
-          aruco_valid=self.elaborate_affine_matrix_of_visible_aruco(id_str)#mi calcolo l'aruco
-          if aruco_valid.is_valid:#se ho trovato l'aruco
-            self.set_new_aruco(id_str,aruco_valid.pose)
-            print("Salvo aruco:"+id_str)
-
-            if collision_to_be_done:
-              self.add_collision_from_aruco(id_str)#aggiungo la collisione corrispondente
-      print("Finish saving arucos")
-    def add_collision_from_aruco(self,ID):
-      global flagMiddlePanelCreated
-      if (ID=="2" or ID=="5" or ID=="8") and not(flagMiddlePanelCreated):
-        collision_box=Collision_Box()
-
-        if not aruco_library.from_id_to_pose_valid_of_the_aruco(ID).is_valid:
-          return False
-
-        flagMiddlePanelCreated=True
-        collision_box.box_name="middle_panel"
-
-        collision_box.box_size[0]=0.001
-        collision_box.box_size[1]=0.3
-        collision_box.box_size[2]=3*0.5
-        collision_box.box_pose.header.frame_id="base_link"
-
-        pose_orientation=transformation_library.from_euler_to_quaternion([0,0,0])
-        collision_box.box_pose.pose.orientation=pose_orientation.orientation
-        
-        collision_box.box_pose.pose.position.x=aruco_library.from_id_to_pose_valid_of_the_aruco(ID).pose.position.x+collision_box.box_size[0]/2
-        collision_box.box_pose.pose.position.y=aruco_library.from_id_to_pose_valid_of_the_aruco(ID).pose.position.y
-        collision_box.box_pose.pose.position.z=aruco_library.from_id_to_pose_valid_of_the_aruco(ID).pose.position.z
-        """
-        collision_boxes[box_name].name=box_name;
-        collision_boxes[box_name].pose=box_pose;
-        collision_boxes[box_name].size[0]=box_size[0];
-        collision_boxes[box_name].size[1]=box_size[1];
-        collision_boxes[box_name].size[2]=box_size[2];
-        """
-        movegroup_library.add_box(collision_box)
-      if (ID>="1" and ID<="9"):
-        coll_box=Collision_Box()
-        pose_aruco_valid=aruco_library.from_id_to_pose_valid_of_the_aruco(ID)
-
-        if not pose_aruco_valid.is_valid:    
-          return False
-
-        pose_0_aruco=pose_aruco_valid.pose
-        Rot=transformation_library.eul2rot([0,0,0])
-        T_aruco_finalpose=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(Rot,[0,-0.055,0])
-        T_0_aruco=transformation_library.from_pose_to_matrix(pose_0_aruco)
-        T_0_finalpose=T_0_aruco.dot(T_aruco_finalpose)
-
-
-        pose_final=transformation_library.from_matrix_to_pose(T_0_finalpose)
-
-        coll_box.box_name="button_"+ID
-
-        coll_box.box_size[0]=0.023
-        coll_box.box_size[1]=0.04
-        coll_box.box_size[2]=0.04
-
-        coll_box.box_pose.header.frame_id="base_link"
-
-        pose_orient=transformation_library.from_euler_to_quaternion([0,0,0])
-        coll_box.box_pose.pose.orientation=pose_orient.orientation
-        
-        
-        coll_box.box_pose.pose.position.x=pose_final.position.x-coll_box.box_size[0]/2
-        coll_box.box_pose.pose.position.y=pose_final.position.y
-        coll_box.box_pose.pose.position.z=pose_final.position.z
-        
-        """
-        collision_boxes[box_name].name=box_name;
-        collision_boxes[box_name].pose=box_pose;
-        collision_boxes[box_name].size[0]=box_size[0];
-        collision_boxes[box_name].size[1]=box_size[1];
-        collision_boxes[box_name].size[2]=box_size[2];
-        """
-        movegroup_library.add_box(coll_box)
-      
-
-#Funzioni da finire
-def move_gripper(gripper_goal):
-  print("Per ora non esiste")
-
-
-#std functions
-def callback_user_interface(msg):
-  global bool_message_from_user,msg_from_user
-  msg_from_user=UserInterfaceRequest()
-  msg_from_user.modality=msg.modality
-  msg_from_user.second_information=msg.second_information
-  msg_from_user.target_pose=msg.target_pose
-  msg_from_user.target_joints=msg.target_joints
-  bool_message_from_user=True
-  return UserInterfaceResponse()
-def handle_user_request():
-  global bool_message_from_user,bool_exit
-  bool_message_from_user=False
-  comunication_object.send_msg_to_polimi(msg_from_user)
-  print("Msg received:"+msg_from_user.modality)
-  if msg_from_user.modality=="automazione_go_pos_iniziale":
-    movimenti_base_library.go_to_initial_position()
-  if msg_from_user.modality=="controlla_gripper":
-    move_gripper(msg_from_user.second_information)
-  if msg_from_user.modality=="joystick":
-    handle_joystick_input(msg_from_user.second_information,msg_from_user.target_joints[0])
-  if msg_from_user.modality=="Stampa_pose_robot":
-    movegroup_library.Stampa_Info_Robot()
-  if msg_from_user.modality=="stop_trajectory":
-    movegroup_library.FermaRobot()
-  if msg_from_user.modality=="salva_aruco":
-    aruco_library.save_visible_arucos()    
-  if msg_from_user.modality=="turn_on_off_camera":
-    comunication_object.call_cv_service("turn_on_off_camera","")
-  if msg_from_user.modality=="exit":
-    bool_exit=True
-    comunication_object.call_cv_service("exit","")
-  if msg_from_user.modality=="pose_randomOrientation":
-    movegroup_library.go_to_pose_goal(msg_from_user.target_pose,True)
-  if msg_from_user.modality=="pose":
-    movegroup_library.go_to_pose_cartesian(msg_from_user.target_pose,True)
-  if msg_from_user.modality=="salva_point_in_cloud":
-    salva_punto_nella_pointcloud()
-  if msg_from_user.modality=="elaboraManualCloud":
-    elaboraManualCloud()
-
-def handle_joystick_input(input,percentuale):
-  global joystick_verso_rotazione,joystick_translation_step,joystick_angle_step,bool_message_from_user
-  #q w -> asse x
-  #a s -> asse y
-  #z x -> asse z
-  #o p -> rotazione asse x
-  #k l -> rotazione asse y
-  #n m -> rotazione asse z
-
-  #if bool_pose_move==True allora si dovra effettuare un movimento go_to_pose
-  #if bool_joint_move==True allora si dovra effettuare un movimento go_to_joint_state
-  bool_message_from_user=True
-  bool_pose_move=False
-  bool_joint_move=False
-  
-  actual_pose=movegroup_library.move_group.get_current_pose().pose
-  target_pose=actual_pose
-  actual_rpy_vet=transformation_library.rpy_from_quat(actual_pose.orientation)
-  target_rpy_vet=actual_rpy_vet
-
-  percentuale=percentuale/100
-
-  joystick_translation_step=MaxTranslationStep*percentuale
-  joystick_angle_step=MaxRotationStep*percentuale
-  
-  print(joystick_translation_step)
-
-  if(input=="q"):
-    target_pose.position.x=actual_pose.position.x+joystick_translation_step
-    bool_pose_move=True
-  if(input=="w"):
-    bool_pose_move=True
-    target_pose.position.x=actual_pose.position.x-joystick_translation_step
-  if(input=="a"):
-    bool_pose_move=True
-    target_pose.position.y=actual_pose.position.y+joystick_translation_step
-  if(input=="s"):
-    bool_pose_move=True
-    target_pose.position.y=actual_pose.position.y-joystick_translation_step
-  if(input=="z"):
-    bool_pose_move=True
-    target_pose.position.z=actual_pose.position.z+joystick_translation_step
-  if(input=="x"):
-    bool_pose_move=True
-    target_pose.position.z=actual_pose.position.z-joystick_translation_step
-  if(input=="o"):
-    bool_pose_move=True
-    target_rpy_vet[0]=actual_rpy_vet[0]+joystick_angle_step
-  if(input=="p"):
-    bool_pose_move=True
-    target_rpy_vet[0]=actual_rpy_vet[0]-joystick_angle_step
-  if(input=="k"):
-    bool_pose_move=True
-    target_rpy_vet[1]=actual_rpy_vet[1]+joystick_angle_step
-  if(input=="l"):
-    bool_pose_move=True
-    target_rpy_vet[1]=actual_rpy_vet[1]-joystick_angle_step
-  if(input=="n"):
-    bool_pose_move=True
-    target_rpy_vet[2]=actual_rpy_vet[2]+joystick_angle_step
-  if(input=="m"):
-    bool_pose_move=True
-    target_rpy_vet[2]=actual_rpy_vet[2]-joystick_angle_step
-
-  if(input>="1" and input<="6"):
-    #trasforma char in numero tramite ascii
-    num=ord(input)-ord("1")+1
-    angle_grad_step=transformation_library.rad_to_grad(joystick_angle_step)
-    movegroup_library.ruota_giunto(num-1,joystick_angle_step*joystick_verso_rotazione)
-
-  if(input=="0"):
-    joystick_verso_rotazione=(-1)*(joystick_verso_rotazione)
-
-
-
-  if bool_pose_move:
-    quaternion_target=transformation_library.from_euler_to_quaternion(target_rpy_vet)
-    target_pose.orientation=quaternion_target.orientation
+            #if(cont2%10000==0):
+              #print(cont2)
+            self.all_normals.append(pos)  
     
-    movegroup_library.Stampa_rpy()
-    movegroup_library.go_to_pose_cartesian(target_pose,True)
+    self.bool_normals_saved=True   
+    print("Finish to read normals")
+  def CAMERA_associate_traj_and_normals_points(self):
+    if self.bool_associazione_completata:
+      return
+    if not self.bool_traj_saved :
+      self.read_traj_from_file()
+    if not self.bool_normals_saved :
+      self.CAMERA_leggi_normals()
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+    print("Inizio ad eseguire l'associazione, ci vorra un po")
+    print("Ricordati che ogni punto e' stato traslato di 1 cm per non collidere")
+    trans=[-0.01,0,0]
+    R=transformation_library.eul2rot([0,0,0])
+    T_target_to_approach=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
 
-    movegroup_library.Stampa_rpy()
-#initial
-def define_std_matrices():
-  global T_tool_camera,T_camera_camera_gazebo,T_tool_camera_gazebo
-  # T_tool_camera=Affine_valid()
-  # T_camera_camera_gazebo=Affine_valid()
-  # T_tool_camera_gazebo=Affine_valid()
+    for traj_pose in self.all_poses_in_traj:
+      min=1000
+      for normal_pose in self.all_normals:
 
-  #T_tool_camera.Affine_matrix=np.matrix([[0.9848,-0.1736,0,0],[0,0,-1,0],[0.1736,0.9848,0,0],[0.0081,0.0874,0,1]])
-  T_tool_camera=np.matrix([[0.9848,0,0.1736,0.0081],[-0.1736,0,0.9848,0.0874],[0,-1,0,0],[0,0,0,1]])
-  #T_camera_camera_gazebo.Affine_matrix=np.matrix([[0,0,1,0],[0,-1,0,0],[1,0,0,0],[0,0,0,1]])
-  T_camera_camera_gazebo=np.matrix([[0,0,1,0],[0,-1,0,0],[1,0,0,0],[0,0,0,1]])
-  #print(T_tool_camera.Affine_matrix)
-  #print(T_camera_camera_gazebo.Affine_matrix)
-  T_tool_camera_gazebo=T_tool_camera*T_camera_camera_gazebo
+        dist=transformation_library.compute_distance_pose(traj_pose,normal_pose)
+        if(dist<min):
+          min=dist
+          normal_piu_vicina=normal_pose
+      
+      #Trasformo da camera_depth a base sdr
+      pos_target=normal_piu_vicina
+      T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pos_target)
+      T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
 
-def initialize_robodk():
-  global robodk_library,bool_robodk_movement
+      T_base_target_approach=np.dot(T_base_target,T_target_to_approach)
 
-  robodk_library=RoboDK_class()
-  robodk_library.RDK.setCollisionActive(1)
-  bool_robodk_enabled=True
-  
+      final_target=transformation_library.from_matrix_to_pose(T_base_target_approach)
+      #print(final_target)
+      #print(pos_target)
+      #time.sleep(1)
+
+      self.real_traj.append(final_target)
+    self.bool_associazione_completata=True
+    print("Associazione finita")
+  def go_to_all_normals_CAMERA(self):
+    global bool_exit
+    pose_array=self.all_normals
+    #print(pose_array)
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+    cont=0
+    for pose in pose_array:
+      #print(pose)
+      cont=cont+1
+      if cont%1000==0:
+        #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+        T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pose)
+        T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
+        
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,0,math.pi])
+        T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+        
+        T_final=np.dot(T_sr_change,T_base_target)
+        Pos_final=transformation_library.from_matrix_to_pose(T_base_target)
+        movegroup_library.go_to_pose_goal(Pos_final)
+        bool_exit=rospy.get_param("/CloseSystem")
+        if bool_exit:
+          return
+  def publish_normals(self):
+    global markerArray
+    markerArray=MarkerArray()
+    cont=0
+    T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+    for x in self.all_normals:
+      cont=cont+1
+      if cont%1000==0:
+        self.add_pose_to_marker_array_as_points(x,"cameradepth_link")
+
+    pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
+    pub.publish(markerArray)
 def define_all_initial_functions():
-  global movegroup_library,comunication_object,transformation_library,movimenti_base_library,aruco_library
+  global comunication_object,transformation_library,movimenti_base_library,aruco_library
   global joystick_verso_rotazione,joystick_angle_step,joystick_translation_step,bool_message_from_user,markerArray,pub,marker_cont
-  global MaxTranslationStep,MaxRotationStep
-  aruco_library=Aruco_class()
-  movegroup_library = Move_group_class()
-  comunication_object=Comunication_class()
-  transformation_library=Transformation_class()
-  movimenti_base_library=Movimenti_base_class()
-  #noether_library=Noether_comunication()
+  global xyz_actual,noether_library,movegroup_library,bool_move_group_initialized
   bool_message_from_user=False
-  
-  MaxTranslationStep=0.1
-  MaxRotationStep=transformation_library.grad_to_rad(30)
+  transformation_library=Transformation_class()
+  noether_library=Noether_comunication()
+  rospy.Subscriber("/tf",TFMessage,tf_subscriber)
+  rospy.set_param("/CloseSystem",False)
+  xyz_actual=[0,0,0]
 
-  markerArray=MarkerArray()
-  marker_cont=0
-  pub = rospy.Publisher('/visualization_marker_array', MarkerArray, queue_size=10)
-  #joystick
-  joystick_verso_rotazione=1
-  joystick_translation_step=0.02
-  joystick_angle_step=transformation_library.grad_to_rad(5)
-
-  rospy.Service('user_interface_serv', UserInterface, callback_user_interface)
-  movegroup_library.Stampa_Info_Robot()
-  define_std_matrices()    
-def example_waypoints():
-
-  waypoints = []
-  scale=1
-  wpose = movegroup_library.move_group.get_current_pose().pose
-  wpose.position.z += 0.3  # First move up (z)
-  waypoints.append(copy.deepcopy(wpose))
-
-  wpose.position.x += 0.3  # Second move forward/backwards in (x)
-  waypoints.append(copy.deepcopy(wpose))
-  movegroup_library.follow_pose_trajectory(waypoints)
-def prova():
+  bool_move_group_initialized=True
+  movegroup_library=Move_group_class()
+  define_std_matrices()
+def define_std_matrices():
+  global T_base_camera_depth
   nul=0
-  movegroup_library.Stampa_Info_Robot()
-def elaboraManualCloud():
-  rospy.set_param("/elaborate_manual_pointcloud",True)
-def salva_punto_nella_pointcloud():
-  pose=movegroup_library.get_current_ee_pose()
-  print(pose)
+  #da ee a tool -90 su x 90 su y
+
+def publish_pointcloud_markers():
 
   rospack = rospkg.RosPack()
   pathTopkg=rospack.get_path('pcl_zk')
   pathTopkg=pathTopkg+"/data/"
   pathToFile=pathTopkg+"my_cloud.xyz"
-  
-  output = open(pathToFile, "a")
-  x=pose.pose.position.x
-  y=pose.pose.position.y
-  z=pose.pose.position.z
-  output.write(str(x)+" "+str(y)+" "+str(z)+"\n")
-    
+  input_file=open(pathToFile, "r")
+  for x in input_file:
+    x=x.split()
+    add_vector_to_marker_array(x)
+  print(markerArray.markers)
+def publish_percorso_calcolato():
 
-def add_pose_to_marker_array(pose):
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('ur10_control')
+  pathTopkg=pathTopkg+"/Prova/"
+  pathToFile=pathTopkg+"percorso.xyz"
+  input_file=open(pathToFile, "r")
+  for x in input_file:
+    x=x.split()
+    add_vector_to_marker_array(x)
+    time.sleep(1)
+    pub.publish(markerArray)
+  print(markerArray.markers)
+def add_vector_to_marker_array(vet):
   global marker_cont
   marker=Marker()
-  marker.header.frame_id = "cameradepth_link"
+  marker.header.frame_id = "base"
   marker.header.stamp = rospy.get_rostime()
 
   marker.ns = ""
   marker.id = marker_cont
-  marker.type = visualization_msgs.msg.Marker.ARROW
+  marker.type = visualization_msgs.msg.Marker.SPHERE
   marker.action = 0
-  marker.pose=pose
-  marker.scale.x = 0.02
-  marker.scale.y = 0.005
-  marker.scale.z = 0.005
+  marker.pose=Pose()
+  marker.pose.position.x=float(vet[0])
+  marker.pose.position.y=float(vet[1])
+  marker.pose.position.z=float(vet[2])
+  marker.pose.orientation.w=1
+  
+  #R1=transformation_library.Rotation_from_quat(marker.pose.orientation)
+  #R2=transformation_library.eul2rot([0,math.pi/2,0])
+  #R=np.dot(R1,R2)
+  #pose_quat=transformation_library.from_rotation_to_quaternion(R)
+  #marker.pose.orientation=pose_quat.orientation
+
+  marker.scale.x = 0.01
+  marker.scale.y = 0.01
+  marker.scale.z = 0.01
   marker.color.a = 1.0; 
   marker.color.r = 0.0
   marker.color.g = 1.0
@@ -1272,27 +1073,243 @@ def add_pose_to_marker_array(pose):
 
   markerArray.markers.append(marker)
   marker_cont=marker_cont+1
+def elaboraManualCloud():
+  rospy.set_param("/elaborate_manual_pointcloud",True)
+def salva_punto_nella_pointcloud():
+  pose=movegroup_library.get_current_ee_pose()
 
-  print("published")
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"my_cloud.xyz"
+  
+  output = open(pathToFile, "a")
+  #x=pose.pose.position.x
+  #y=pose.pose.position.y
+  #z=pose.pose.position.z
+  x=xyz_actual[0]
+  y=xyz_actual[1]
+  z=xyz_actual[2]
+  output.write(str(x)+" "+str(y)+" "+str(z)+"\n")
+def eliminare_ultimo_punto_cloud():
 
-def main():
-  define_all_initial_functions()
-  prova()    
-  try:
-    while (not rospy.core.is_shutdown()) and (not bool_exit):
-
-
-        rospy.rostime.wallsleep(0.5)
-        if not marker_cont==0 :
-          pub.publish(markerArray)
-        if bool_message_from_user:
-          handle_user_request()
-  except rospy.ROSInterruptException:
+  value = input("\n\n Sto per eliminare un punto dalla cloud, sei sicuro?\n 1)Si\n 2)No\n Risposta:")
+  if(value==2):
     return
-  except KeyboardInterrupt:
-    return
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"my_cloud.xyz"
+  input_file = open(pathToFile, "r")
+  file_strings=input_file.readlines()
+  file_strings.pop()
+  input_file.close()
 
-  except bool_exit==True:
+  output = open(pathToFile, "w")
+  output.writelines(file_strings)
+def go_to_all_poses_of_cloud():
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"my_normals.pcd"
+  input_file = open(pathToFile, "r")
+  cont=0
+  cont2=0
+  for x in input_file:
+    cont=cont+1
+    
+    if(cont>11):
+      s=x.split()
+      if(s[0]!="nan"):
+        print(s)
+        cont2=cont2+1
+        if(cont2>20):
+          print("force to exit")
+          return
+        pos=movegroup_library.get_current_ee_pose().pose
+        pos.position.x=float(s[0])
+        pos.position.y=float(s[1])
+        pos.position.z=float(s[2])
+        #pos.position.x=0.1
+        #pos.position.y=0
+        #pos.position.z=0
+        
+        #pos.orientation.x=float(s[3])
+        #pos.orientation.y=float(s[4])
+        #pos.orientation.z=float(s[5])
+        #pos.orientation.w=float(s[6])
+        
+        pos.position.z=pos.position.z+0
+        quat=transformation_library.from_euler_to_quaternion([float(s[3]),float(s[4]),float(s[5])])
+        pos.orientation=quat.orientation
+
+        #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,math.pi/2,0])
+        T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+
+
+        trans=[0,0,0]
+        R=transformation_library.eul2rot([0,0,math.pi])
+        T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+        T_actual=transformation_library.from_pose_to_matrix(pos)
+
+
+        T_final=np.dot(T_sr_change,T_actual)
+        T_final=np.dot(T_final,T_normal)
+        Pos_final=transformation_library.from_matrix_to_pose(T_final)
+        print(Pos_final)
+        movegroup_library.go_to_pose_goal(Pos_final)
+def read_traj_from_file_and_publish():
+  noether_library.read_traj_from_file()
+  noether_library.publish_traj()
+def go_to_all_poses_of_traj_file():
+  global bool_exit
+  
+  noether_library.associate_traj_and_normals_points()
+  pose_array=noether_library.real_traj
+  for pose in pose_array:
+    #transformation_library.from_euler_to_quaternion([0,0,0])
+
+    #rotate sdr
+    trans=[0,0,0]
+    R=transformation_library.eul2rot([0,0,math.pi])
+    T_sr_change=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+    T_target=transformation_library.from_pose_to_matrix(pose)
+
+
+    T_final=np.dot(T_sr_change,T_target)
+    Pos_final=transformation_library.from_matrix_to_pose(T_final)
+    movegroup_library.go_to_pose_goal(Pos_final)
+    bool_exit=rospy.get_param("/CloseSystem")
+    if bool_exit:
       return
+def cambia_valore_di_alpha():
+  alpha = input("\n Inserisci nuovo valore di alpha\n Risposta:")
+  rospy.set_param("/alpha",alpha)
+
+
+#pointcloud_from_camera
+def salva_nuove_coordinate():
+  rospack = rospkg.RosPack()
+  pathTopkg=rospack.get_path('pcl_zk')
+  pathTopkg=pathTopkg+"/data/"
+  pathToFile=pathTopkg+"mesh.pcd"
+  pathToNewCoordinates=pathTopkg+"new_coordinates.pcd"
+  input_file = open(pathToFile, "r")
+  output_file = open(pathToNewCoordinates, "w")
+  cont=0
+  cont2=0
+
+  T_base_camera_depth=movegroup_library.get_T_base_camera_depth()
+  pos=movegroup_library.get_current_ee_pose().pose
+  for x in input_file:
+    cont=cont+1
+    
+
+
+    if(cont>12):
+      s=x.split()
+      if(s[0]!="nan"):
+        cont2=cont2+1
+        #print(s)
+        pos.position.x=float(s[0])
+        pos.position.y=float(s[1])
+        pos.position.z=float(s[2])
+        #pos.position.x=0.1
+        #pos.position.y=0
+        #pos.position.z=0
+        
+        target_rpy_vet=[float(s[3]),float(s[4]),float(s[5])]
+        quaternion_target=transformation_library.from_euler_to_quaternion(target_rpy_vet)
+        pos.orientation=quaternion_target.orientation
+
+        T_from_camera_depth_TO_target=transformation_library.from_pose_to_matrix(pos)
+        
+
+        T_base_target=np.dot(T_base_camera_depth,T_from_camera_depth_TO_target)
+        
+        target=transformation_library.from_matrix_to_pose(T_base_target)
+        #target.orientation=movegroup_library.get_current_ee_pose().pose.orientation
+        #print(target)
+        #print(transformation_library.rpy_from_quat(target.orientation))
+        output_file.writelines(str(target.position.x)+" "+str(target.position.y)+" "+str(target.position.z)+" "+str(target.orientation.x)+" "+str(target.orientation.y)+" "+str(target.orientation.z)+" "+str(target.orientation.w)+"\n")
+def go_to_all_traj_pose_wrt_camera():
+  global bool_exit
+  #this function works with all the points in the camera reference system
+  noether_library.CAMERA_associate_traj_and_normals_points()
+  #noether_library.go_to_all_normals_CAMERA()
+  #return
+  pose_array=noether_library.real_traj
+  #print(pose_array)
+  for pose in pose_array:
+    #print(pose)
+    #Questa rotazione ha lo scopo di mettere il tool sopra l'oggetto, normale ad esso
+    #trans=[0,0,0]
+    #R=transformation_library.eul2rot([0,-math.pi/2,0])
+    #T_normal=transformation_library.create_affine_matrix_from_rotation_matrix_and_translation_vector(R,trans)
+
+
+
+    #T_actual=transformation_library.from_pose_to_matrix(pose)
+
+
+    #T_final=np.dot(T_actual,T_normal)
+        
+    #Pos_final=transformation_library.from_matrix_to_pose(T_final)
+    movegroup_library.go_to_pose_goal(pose)
+    bool_exit=rospy.get_param("/CloseSystem")
+    if bool_exit:
+      return
+
+
+def tf_subscriber(msg):
+  global xyz_actual
+  nul=0
+  msg=msg.transforms[0]
+  if(msg.child_frame_id!="tool0_controller"):
+    return
+  xyz_actual=[-msg.transform.translation.x,-msg.transform.translation.y,msg.transform.translation.z]
+def clean_markers():
+  global markerArray,marker_cont
+  markerArray=MarkerArray()
+  for cont_to_delete in range(0,10000):
+    marker=Marker()
+    marker.header.frame_id = "cameradepth_link"
+
+    marker.ns = ""
+    marker.id = cont_to_delete
+    marker.action = 2
+
+    markerArray.markers.append(marker)
+  pub.publish(markerArray)
+def force_listener(msg):
+  global total_force
+  x_2=msg.wrench.force.x*msg.wrench.force.x
+  y_2=msg.wrench.force.y*msg.wrench.force.y
+  z_2=msg.wrench.force.z*msg.wrench.force.z
+  total_force=math.sqrt(x_2+y_2+z_2)
+  if(total_force>0):
+    print(total_force)
+def main():
+  global movegroup_library,bool_move_group_initialized,marker_cont,markerArray
+  global pub
+
+  define_all_initial_functions()
+  rospy.Subscriber("/ft_sensor_topic",geometry_msgs.msg.WrenchStamped,force_listener)
+  """
+  pose=Pose()
+  pose.position.x=1
+  pose.position.y=0
+  pose.position.z=0.1
+  pose.orientation=transformation_library.from_euler_to_quaternion([0,0,0]).orientation
+  
+  movegroup_library.go_to_pose_cartesian(pose)"""
+  while not rospy.is_shutdown():
+    rospy.rostime.wallsleep(0.5)
+
 if __name__ == '__main__':
   main()
+

@@ -54,6 +54,10 @@ project(ur10_control)
     CATKIN_DEPENDS message_runtime
   )
 
+  add_executable(handle_jacobian src/handle_jacobian.cpp)
+  target_link_libraries(handle_jacobian ${catkin_LIBRARIES} ${Boost_LIBRARIES})
+  
+
 include_directories(
     ${catkin_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS} 
@@ -65,6 +69,7 @@ include_directories(
    scripts/UI_gara.py
    scripts/collision_interface.py
    scripts/control_py.py
+   scripts/script_test_polimi.py
    scripts/my_opencv.py
    QT/user_interface.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

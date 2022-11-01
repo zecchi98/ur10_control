@@ -15,6 +15,7 @@ from cv_bridge import CvBridge
 from ur10_control.srv import *
 def handler_cv_server(msg):
     global bool_exit,bool_camera_on
+    print(msg.message)
     if msg.message=="exit":
         bool_exit=True
     if msg.message=="turn_on_off_camera":
@@ -73,7 +74,7 @@ def main():
     ##
     #\brief Here we initialize some variables and thanks to spin we wait for callbackRaw
     global bridge,bool_exit,ARUCO_PARAMETERS,ARUCO_DICT,bool_camera_on
-
+    print("Main opencv initialized")
     bool_exit=False
     bridge=CvBridge()
 
@@ -97,6 +98,7 @@ def main():
     loadCameraParam(myCamera)
     print('ready')
 
+    print("Main opencv concluded")
     #Thanks to spin we will wait callbacks
     try:
         rospy.spin()

@@ -270,10 +270,10 @@ class Screen_Automazione(QWidget):
     def goToMainMenu(self):
         widget.removeWidget(window_automazione)
         widget.addWidget(window_main)
-    def automazione_PosPannello(self):
+    def FollowTrajectory(self):
         target_joints=[0,0,0,0,0,0] 
         target_pose=Pose()
-        modality='automazione_pannello_posizioneCorretta'
+        modality='FollowTrajectory'
         second_information='null'
         try:
             msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
@@ -290,10 +290,10 @@ class Screen_Automazione(QWidget):
             resp1 = serv(msg)
         except rospy.ServiceException as e:
             self.l_comunicazione.setText('Errore:'+ e)
-    def ruota_e_cerca_aruco(self):
+    def PlotPoints(self):
         target_joints=[0,0,0,0,0,0]
         target_pose=Pose()
-        modality='ruota_e_cerca_aruco'
+        modality='PlotPoints'
         second_information='null'
         try:
             msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
@@ -311,10 +311,10 @@ class Screen_Automazione(QWidget):
             resp1 = serv(msg)
         except rospy.ServiceException as e:
             self.l_comunicazione.setText('Errore:'+ e)
-    def automazione_pannello_nextAruco(self):
+    def ChangeDistanceFromObj(self):
         target_joints=[0,0,0,0,0,0] 
         target_pose=Pose()
-        modality='automazione_pannello_nextAruco'
+        modality='ChangeDistanceFromObj'
         second_information=self.select_aruco_value.text()
         try:
             msg=UserInterfaceRequest(modality,second_information,target_pose,target_joints)
